@@ -291,10 +291,14 @@ void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
         return;
     }
 
-    session->draw(vg, (int) width, (int) height);
-
+    // Sample and send input before submitting the video frame so input packets
+    // leave as early as possible within this frame's window instead of waiting
+    // for the render pass to finish.
     if (!tempInputLock && session->is_active())
         handleInput();
+
+    session->draw(vg, (int) width, (int) height);
+
     handleOverlayCombo();
     handleMouseInputCombo();
 
