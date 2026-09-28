@@ -53,6 +53,7 @@ class StreamingView : public brls::Box {
     TwoFingerScrollGestureRecognizer* scrollTouchRecognizer = nullptr;
 
     void handleInput();
+    void sampleGamepadInput();
     void handleOverlayCombo();
     void handleMouseInputCombo();
     void addKeyboard();

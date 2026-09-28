@@ -293,7 +293,10 @@ void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
 
     // Sample and send input before submitting the video frame so input packets
     // leave as early as possible within this frame's window instead of waiting
-    // for the render pass to finish.
+    // for the render pass to finish. A second sample is taken at the very end
+    // of this draw callback (see below): the two samples split the vblank
+    // interval into shorter gaps, so a button press waits less for the next
+    // sample than with a single sample per frame.
     if (!tempInputLock && session->is_active())
         handleInput();
 
@@ -406,6 +409,13 @@ void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
     }
 
     Box::draw(vg, x, y, width, height, style, ctx);
+
+    // Second input sample of this frame, taken as late as possible (this is
+    // the last work done before the frame is presented). Only the gamepad is
+    // sampled here; keyboard diffing and the bottom bar timer stay on the
+    // single call above.
+    if (!tempInputLock && session->is_active())
+        sampleGamepadInput();
 }
 
 void StreamingView::addKeyboard() {
@@ -467,7 +477,7 @@ void StreamingView::handleInput() {
 //        MoonlightInputManager::instance().dropInput();
     }
 //    else {
-    MoonlightInputManager::instance().handleInput(keyboard != nullptr);
+    sampleGamepadInput();
 //    }
 
     if (!Application::currentTouchState.empty()) {
@@ -483,6 +493,15 @@ void StreamingView::handleInput() {
             bottombarDelayTask = -1;
         });
     }
+}
+
+void StreamingView::sampleGamepadInput() {
+    if (!this->focused) {
+        MoonlightInputManager::instance().dropInput();
+        return;
+    }
+
+    MoonlightInputManager::instance().handleInput(keyboard != nullptr);
 }
 
 void StreamingView::handleOverlayCombo() {
