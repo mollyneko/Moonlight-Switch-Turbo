@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Mostrar la vista de debug",
+        "frame_buffer": "Búfer de fotogramas (menor = menos latencia)",
         "decoder_threads": "Decoder Threads",
         "fps": "FPS",
         "guide_key": "Botón de Guía (Activación inmediata)",

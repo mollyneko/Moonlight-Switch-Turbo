@@ -340,6 +340,14 @@ SettingsTab::SettingsTab() {
     hwDecoding->init("settings/use_hw_decoding"_i18n, Settings::instance().use_hw_decoding(),
                      [](bool value) { Settings::instance().set_use_hw_decoding(value); });
 
+    std::vector<std::string> frameBufferSizes = {"1", "2", "3"};
+    const int frameBufferIndex = std::min<int>(
+        2, std::max<int>(0, Settings::instance().frames_queue_size() - 1));
+    frameBuffer->init("settings/frame_buffer"_i18n, frameBufferSizes, frameBufferIndex,
+                      [](int selected) {
+                          Settings::instance().set_frames_queue_size(selected + 1);
+                      });
+
 #if defined(__linux__) && defined(PLATFORM_DESKTOP)
     hwDecoding->setEnabled(true);
 #else

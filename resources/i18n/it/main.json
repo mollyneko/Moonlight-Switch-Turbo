@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Mostra visualizzazione di debug",
+        "frame_buffer": "Buffer dei fotogrammi (più basso = meno latenza)",
         "decoder_threads": "Threads del decodificatore",
         "fps": "FPS",
         "guide_key": "Pulsante guida (Click Istantaneo)",

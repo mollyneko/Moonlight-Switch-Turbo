@@ -355,7 +355,10 @@ class Settings : public Singleton<Settings> {
     int m_rcas_strength = 20;
     bool m_click_by_tap = false;
     int m_decoder_threads = 4;
-    int m_frames_queue_size = 3;
+    // Frames buffered between decoder and renderer. Every buffered frame is
+    // added latency (1 frame = 16.7 ms at 60 FPS), so 1 is the lowest latency
+    // and 3 the smoothest. AVFrameQueue caps the target depth at 3 anyway.
+    int m_frames_queue_size = 2;
     bool m_sops = false;
     bool m_play_audio = false;
     bool m_write_log = false;

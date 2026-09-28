@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Debugansicht anzeigen",
+        "frame_buffer": "Video-Framepuffer (niedriger = weniger Latenz)",
         "decoder_threads": "Decoder Threads",
         "fps": "FPS",
         "guide_key": "Guide Taste (keine Verzögerung)",

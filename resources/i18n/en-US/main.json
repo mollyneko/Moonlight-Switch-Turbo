@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Show debugging view",
+        "frame_buffer": "Video frame buffer (lower = less lag)",
         "decoder_threads": "Decoder Threads",
         "fps": "FPS",
         "guide_key": "Guide key (clicks immediately)",

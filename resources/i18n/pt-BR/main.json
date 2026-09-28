@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Mostrar janela de debug",
+        "frame_buffer": "Buffer de quadros (menor = menos latência)",
         "decoder_threads": "Decor Threads",
         "fps": "FPS",
         "guide_key": "Tecla Guia (Clique imediato)",
