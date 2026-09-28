@@ -281,6 +281,9 @@ void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
     m_config.width = w;
     m_config.height = h;
     m_config.fps = Settings::instance().fps();
+    // The host paces its encoder against the refresh rate we can actually
+    // present, in Hz * 100. Switch output is 60Hz in handheld and docked mode.
+    m_config.clientRefreshRateX100 = 6000;
     m_config.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
     m_config.packetSize = 1392;
     m_config.streamingRemotely = STREAM_CFG_AUTO;

@@ -48,6 +48,8 @@ private:
     bool pushTransferredLocked(AVFrame* item);
     void recordArrivalLocked(std::chrono::steady_clock::time_point now);
     void resetArrivalRateEstimatorLocked();
+    void updateAdaptiveTargetLocked(std::chrono::steady_clock::time_point now,
+                                    bool underrun);
     void trimToPlayoutWindowLocked();
     size_t limit = 0;
     std::queue<AVFrame*> queue;
@@ -55,6 +57,12 @@ private:
     AVFrame* bufferFrame = nullptr;
     bool transferOwnership = false;
     size_t targetBufferedFrames = 0;
+    // Adaptive depth: the configured depth is the ceiling, one frame below it
+    // is the floor. See updateAdaptiveTargetLocked().
+    size_t baselineTargetFrames = 0;
+    size_t minTargetFrames = 0;
+    size_t targetReduceBackoff = 1;
+    std::chrono::steady_clock::time_point nextTargetReduceTime{};
     int streamFps = 0;
     std::chrono::nanoseconds adaptiveFrameInterval{0};
     std::chrono::steady_clock::time_point lastDraw{};

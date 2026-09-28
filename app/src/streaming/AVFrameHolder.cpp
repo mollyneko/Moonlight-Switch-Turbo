@@ -17,6 +17,11 @@ constexpr auto kArrivalRateResetGap = std::chrono::milliseconds(500);
 constexpr double kArrivalRateSmoothing = 0.35;
 constexpr double kOccupancyCorrectionPerFrame = 0.01;
 constexpr double kMaximumOccupancyCorrection = 0.08;
+// How long the queue has to run without an underrun before it gives back one
+// frame of reserve, and the cap on how far that delay backs off when giving the
+// frame back turns out to be a mistake.
+constexpr auto kTargetStableDuration = std::chrono::seconds(5);
+constexpr size_t kMaxTargetReduceBackoff = 12;
 
 void freeFrameQueue(std::queue<AVFrame*>& frames) {
     for (; !frames.empty(); frames.pop()) {
@@ -145,6 +150,10 @@ AVFrame* AVFrameQueue::pop(bool* consumed) {
         playoutResyncNeeded = true;
     }
 
+    // Only hand back reserve while the queue keeps up; see the underrun path
+    // below for the opposite direction.
+    updateAdaptiveTargetLocked(now, false);
+
     size_t dueFrames = 0;
     const bool backlogResync = limit > 0 && queue.size() >= limit;
     if ((playoutResyncNeeded || backlogResync) && !queue.empty()) {
@@ -209,6 +218,10 @@ AVFrame* AVFrameQueue::pop(bool* consumed) {
         // Relearn it from fresh arrivals while occupancy pacing protects the
         // jitter reserve, rather than causing repeated underflow/resume cycles.
         resetArrivalRateEstimatorLocked();
+        // A frame was due but the queue had none: whatever reserve we were
+        // running with was too small. Go back to the configured depth and leave
+        // it alone for longer next time.
+        updateAdaptiveTargetLocked(now, true);
         return bufferFrame;
     }
 
@@ -251,8 +264,17 @@ void AVFrameQueue::configure(size_t queueLimit, int configuredStreamFps,
     std::lock_guard<std::mutex> lock(m_mutex);
     const size_t configuredDepth = std::max<size_t>(queueLimit, 1);
     limit = capacityFor(configuredDepth);
-    targetBufferedFrames =
+    // The configured depth is a ceiling, not a constant: start there so the
+    // first seconds are safe, then let the adaptive step hand back one frame of
+    // reserve once the link proves it can keep up without it.
+    baselineTargetFrames =
         configuredDepth > 1 ? std::min<size_t>(configuredDepth - 1, 2) : 0;
+    minTargetFrames =
+        baselineTargetFrames > 0 ? baselineTargetFrames - 1 : 0;
+    targetBufferedFrames = baselineTargetFrames;
+    targetReduceBackoff = 1;
+    nextTargetReduceTime =
+        std::chrono::steady_clock::now() + kTargetStableDuration;
     transferOwnership = transferOwnershipEnabled;
     streamFps = configuredStreamFps;
     adaptiveFrameInterval = std::chrono::nanoseconds::zero();
@@ -436,6 +458,35 @@ void AVFrameQueue::resetArrivalRateEstimatorLocked() {
     arrivalRateSamples = 0;
     estimatedSourceFps = 0.0;
     adaptiveFrameInterval = std::chrono::nanoseconds::zero();
+}
+
+void AVFrameQueue::updateAdaptiveTargetLocked(
+    std::chrono::steady_clock::time_point now, bool underrun) {
+    if (underrun) {
+        // Giving back the frame was wrong, or it was just plain unlucky: hold
+        // the reserve for longer before trying again instead of flapping every
+        // few seconds between low latency and stutter. A miss while already
+        // running at the ceiling is blamed on the link, not on the handback, so
+        // it must not slow down further attempts at the floor.
+        const bool wasReduced = targetBufferedFrames < baselineTargetFrames;
+        targetBufferedFrames = baselineTargetFrames;
+        if (wasReduced) {
+            // ponytail: backoff only grows within a session, so a link that had
+            // one bad minute retries the floor at most once a minute. Halve it
+            // against a "survived the whole window at the floor" signal if the
+            // convergence ever matters.
+            targetReduceBackoff =
+                std::min<size_t>(targetReduceBackoff * 2, kMaxTargetReduceBackoff);
+        }
+        nextTargetReduceTime =
+            now + kTargetStableDuration * targetReduceBackoff;
+        return;
+    }
+
+    if (targetBufferedFrames > minTargetFrames && now >= nextTargetReduceTime) {
+        targetBufferedFrames--;
+        nextTargetReduceTime = now + kTargetStableDuration * targetReduceBackoff;
+    }
 }
 
 void AVFrameQueue::trimToPlayoutWindowLocked() {
