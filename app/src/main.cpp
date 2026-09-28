@@ -187,6 +187,25 @@ int main(int argc, char* argv[]) {
     }
 
     // Exit
+#ifdef __SWITCH__
+    // HOME -> Close ends this process through an applet exit request, which
+    // never runs StreamingView::terminate(): the streaming sockets, NVDEC, the
+    // audio output and the deko3d GPU channel were all still live when the
+    // kernel tore the process down. A healthy console survives that, but after
+    // a sleep/wake cycle those sessions are stale and the teardown blocks in
+    // nvhost/audout, which freezes the whole console (HOME stops responding
+    // too). Stop the session here instead, while we can still order it.
+    if (auto* session = MoonlightSession::activeSession()) {
+        session->stop(0);
+        // Runs ~MoonlightSession -> ~DKVideoRenderer, which waits for the GPU
+        // to go idle before its resources go away. The session is leaked
+        // everywhere else, so this is the only place that ever happens.
+        delete session;
+    }
+    // Counterpart of appletInitializeGamePlayRecording() above.
+    appletEndGamePlayRecording();
+#endif
+
 #if defined(PLATFORM_TVOS)
     exit(0);
 #endif

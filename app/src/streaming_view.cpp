@@ -291,6 +291,24 @@ void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
         return;
     }
 
+    // A sleep/wake cycle leaves the sockets, NVDEC and the GPU channel in a
+    // state nobody told this process about. Streaming on top of them is what
+    // wedges the console when the app is closed later, so rebuild the session
+    // instead of continuing. Same suspension heuristic AVFrameHolder uses:
+    // while the app actually runs, no two frames are a whole second apart.
+    const auto now = std::chrono::steady_clock::now();
+    const auto sinceLastDraw = now - lastDrawTime;
+    lastDrawTime = now;
+    if (sinceLastDraw > std::chrono::seconds(1)) {
+        brls::Logger::info(
+            "StreamingView: drew {}ms after the previous frame, restarting the "
+            "session",
+            std::chrono::duration_cast<std::chrono::milliseconds>(sinceLastDraw)
+                .count());
+        session->restart();
+        return;
+    }
+
     // Sample and send input before submitting the video frame so input packets
     // leave as early as possible within this frame's window instead of waiting
     // for the render pass to finish. A second sample is taken at the very end

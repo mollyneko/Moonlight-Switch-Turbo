@@ -13,6 +13,7 @@
 #include <Settings.hpp>
 #include <borealis.hpp>
 #include <optional>
+#include <chrono>
 #include "GameStreamClient.hpp"
 #include "MoonlightSession.hpp"
 #include "two_finger_scroll_recognizer.hpp"
@@ -46,6 +47,9 @@ class StreamingView : public brls::Box {
     bool blocked = false;
     bool terminated = false;
     bool tempInputLock = false;
+    // Used to tell a sleep/wake cycle apart from a normal frame: see draw().
+    std::chrono::steady_clock::time_point lastDrawTime =
+        std::chrono::steady_clock::now();
     brls::Event<brls::KeyState>::Subscription keysSubscription;
     int touchScrollCounter = 0;
     size_t bottombarDelayTask = -1;
