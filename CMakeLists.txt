@@ -70,7 +70,7 @@ endif ()
 
 set(VERSION_MAJOR "1")
 set(VERSION_MINOR "5")
-set(VERSION_ALTER "5")
+set(VERSION_ALTER "6")
 set(VERSION_BUILD "1")
 set(PACKAGE_NAME "ru.xitrix.Moonlight")
 set(PSN_TITLE_ID  "MNTL00000")
@@ -386,6 +386,10 @@ elseif (PLATFORM_PSV)
         )
     endif()
 elseif (PLATFORM_SWITCH)
+    # Artifact name for distribution. Kept in sync with the rename step in
+    # .github/workflows/docker-image.yml so a local build produces the exact
+    # file name a release ships.
+    set(NRO_DIST_NAME "Moonlight-Switch.nro")
     if (USE_DEKO3D)
         gen_dksh("${PROJECT_RESOURCES}/shaders")
     endif ()
@@ -395,6 +399,11 @@ elseif (PLATFORM_SWITCH)
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_RESOURCES} ${CMAKE_BINARY_DIR}/resources
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/resources/font
         COMMAND ${NX_ELF2NRO_EXE} ${PROJECT_NAME}.elf ${PROJECT_NAME}.nro --icon=${PROJECT_ICON} --nacp=${PROJECT_NAME}.nacp --romfsdir=${CMAKE_BINARY_DIR}/resources
+        # The release workflow ships this under a different name (see
+        # .github/workflows/docker-image.yml: mv Moonlight.nro Moonlight-Switch.nro).
+        # Emit the same file name here as well, otherwise the copy sitting next to
+        # the fresh build is whatever a previous release happened to leave behind.
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PROJECT_NAME}.nro ${NRO_DIST_NAME}
     )
     list(APPEND APP_PLATFORM_LIB dav1d z)
 elseif (PLATFORM_ANDROID)

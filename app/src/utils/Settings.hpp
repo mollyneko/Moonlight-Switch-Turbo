@@ -250,6 +250,9 @@ class Settings : public Singleton<Settings> {
     void set_write_log(bool write_log) { m_write_log = write_log; }
     [[nodiscard]] bool write_log() const { return m_write_log; }
 
+    void set_log_to_file(bool log_to_file) { m_log_to_file = log_to_file; }
+    [[nodiscard]] bool log_to_file() const { return m_log_to_file; }
+
     void set_swap_ui_keys(bool swap_ui_keys) { m_swap_ui_keys = swap_ui_keys; }
     [[nodiscard]] bool swap_ui_keys() const { return m_swap_ui_keys; }
 
@@ -362,6 +365,9 @@ class Settings : public Singleton<Settings> {
     bool m_sops = false;
     bool m_play_audio = false;
     bool m_write_log = false;
+    // Persists brls::Logger output to <working dir>/log.log. On by default so a
+    // slow or stuttering stream can always be diagnosed after the fact.
+    bool m_log_to_file = true;
     bool m_swap_ui_keys = false;
     bool m_swap_joycon_stick_to_dpad = false;
     bool m_touchscreen_mouse_mode = false;

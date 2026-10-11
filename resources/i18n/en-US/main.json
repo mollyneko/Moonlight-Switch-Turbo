@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Show debugging view",
+        "log_to_file": "Write log file (SD card)",
         "frame_buffer": "Video frame buffer (lower = less lag)",
         "decoder_threads": "Decoder Threads",
         "fps": "FPS",

@@ -34,11 +34,25 @@ public:
     [[nodiscard]] size_t getRebufferHoldStat() const;
     [[nodiscard]] size_t getOverflowDropStat() const;
     [[nodiscard]] size_t getPacingSkipStat() const;
+    // Subset of getPacingSkipStat() that came from trimming the stale backlog
+    // instead of from consuming a second frame in one draw. The remaining
+    // difference is the cadence estimate over-reaching.
+    [[nodiscard]] size_t getTrimSkipStat() const;
     [[nodiscard]] size_t getScheduledHoldStat() const;
     [[nodiscard]] size_t getMaxPushBurstStat() const;
     [[nodiscard]] size_t getLocalClockPacedFrameStat() const;
     [[nodiscard]] size_t getPlayoutResyncStat() const;
     [[nodiscard]] double getEstimatedSourceFps() const;
+
+    // Playout latency: how long the frame handed to the renderer sat in the
+    // queue first. Averaged and peaked over the window since the previous call,
+    // so a 1 Hz reader measures the last second instead of the whole session.
+    void takePresentWaitStats(double& avgMs, double& peakMs);
+
+    // Wait of the frame most recently handed to the renderer, without consuming
+    // it. This is the part of the latency the buffer setting controls, so it is
+    // the number to show live while the player tunes that setting.
+    [[nodiscard]] double getPresentWaitMs() const;
 
     void cleanup();
 
@@ -53,6 +67,9 @@ private:
     void trimToPlayoutWindowLocked();
     size_t limit = 0;
     std::queue<AVFrame*> queue;
+    // Arrival stamp per queued frame, kept in lockstep with `queue` on every
+    // dequeue path so the wait of a presented frame can be measured.
+    std::queue<std::chrono::steady_clock::time_point> arrivalTimes;
     std::queue<AVFrame*> freeQueue;
     AVFrame* bufferFrame = nullptr;
     bool transferOwnership = false;
@@ -84,11 +101,16 @@ private:
     size_t rebufferHoldStat = 0;
     size_t overflowDropStat = 0;
     size_t pacingSkipStat = 0;
+    size_t trimSkipStat = 0;
     size_t scheduledHoldStat = 0;
     size_t pushesSincePop = 0;
     size_t maxPushBurstStat = 0;
     size_t localClockPacedFrameStat = 0;
     size_t playoutResyncStat = 0;
+    double presentWaitMs = 0.0;
+    double presentWaitSumStat = 0.0;
+    size_t presentWaitSamplesStat = 0;
+    double peakPresentWaitStat = 0.0;
 };
 
 class AVFrameHolder : public Singleton<AVFrameHolder> {
@@ -135,11 +157,16 @@ class AVFrameHolder : public Singleton<AVFrameHolder> {
     [[nodiscard]] size_t getFrameQueueRebufferHoldStat() const { return m_frame_queue.getRebufferHoldStat(); }
     [[nodiscard]] size_t getFrameQueueOverflowDropStat() const { return m_frame_queue.getOverflowDropStat(); }
     [[nodiscard]] size_t getFrameQueuePacingSkipStat() const { return m_frame_queue.getPacingSkipStat(); }
+    [[nodiscard]] size_t getFrameQueueTrimSkipStat() const { return m_frame_queue.getTrimSkipStat(); }
     [[nodiscard]] size_t getFrameQueueScheduledHoldStat() const { return m_frame_queue.getScheduledHoldStat(); }
     [[nodiscard]] size_t getFrameQueueMaxPushBurstStat() const { return m_frame_queue.getMaxPushBurstStat(); }
     [[nodiscard]] size_t getFrameQueueLocalClockPacedFrameStat() const { return m_frame_queue.getLocalClockPacedFrameStat(); }
     [[nodiscard]] size_t getFrameQueuePlayoutResyncStat() const { return m_frame_queue.getPlayoutResyncStat(); }
     [[nodiscard]] double getFrameQueueEstimatedSourceFps() const { return m_frame_queue.getEstimatedSourceFps(); }
+    void takeFrameQueuePresentWaitStats(double& avgMs, double& peakMs) {
+        m_frame_queue.takePresentWaitStats(avgMs, peakMs);
+    }
+    [[nodiscard]] double getFrameQueuePresentWaitMs() const { return m_frame_queue.getPresentWaitMs(); }
 
   private:
     AVFrameQueue m_frame_queue;

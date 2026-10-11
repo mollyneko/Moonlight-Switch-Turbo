@@ -207,7 +207,10 @@
                 
             <brls:BooleanCell
                 id="writeLog"/>
-            
+
+            <brls:BooleanCell
+                id="logToFile"/>
+
         </brls:Box>
 
     </brls:ScrollingFrame>

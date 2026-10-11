@@ -15,8 +15,22 @@ constexpr size_t kBurstHeadroomFrames = 5;
 constexpr auto kArrivalRateWindow = std::chrono::milliseconds(250);
 constexpr auto kArrivalRateResetGap = std::chrono::milliseconds(500);
 constexpr double kArrivalRateSmoothing = 0.35;
-constexpr double kOccupancyCorrectionPerFrame = 0.01;
-constexpr double kMaximumOccupancyCorrection = 0.08;
+// Occupancy pacing pulls the queue back to its target depth. It has to actually
+// be able to converge: at a gain of 0.01 the correction was 0.02 frames/draw for
+// a queue sitting two frames deep, i.e. ~0.1 frames per second, so the depth a
+// burst had left behind simply persisted. The log showed the queue pinned above
+// target for 54% of a session with 4 ms RTT and zero overflow trims, costing
+// ~60 ms of the ~68 ms end-to-end latency.
+//
+// Draining more than the target is not free - the excess is discarded - but the
+// frames given up are the oldest ones, and being late is the thing being fixed.
+// The correction is proportional, so it stops on its own once the depth is back
+// at the target instead of dropping frames forever.
+constexpr double kOccupancyCorrectionPerFrame = 0.06;
+constexpr double kMaximumOccupancyCorrection = 0.4;
+// The other direction stays deliberately weak: holding a frame to rebuild
+// reserve shows the same image twice, which is judder that buys nothing.
+constexpr double kMaximumOccupancyUndercorrection = 0.08;
 // How long the queue has to run without an underrun before it gives back one
 // frame of reserve, and the cap on how far that delay backs off when giving the
 // frame back turns out to be a mistake.
@@ -74,8 +88,10 @@ bool AVFrameQueue::push(AVFrame* item) {
         return false;
     }
 
+    const auto arrivalNow = std::chrono::steady_clock::now();
     queue.push(queuedFrame);
-    recordArrivalLocked(std::chrono::steady_clock::now());
+    arrivalTimes.push(arrivalNow);
+    recordArrivalLocked(arrivalNow);
     pushesSincePop++;
     maxPushBurstStat = std::max(maxPushBurstStat, pushesSincePop);
 
@@ -84,6 +100,9 @@ bool AVFrameQueue::push(AVFrame* item) {
         while (queue.size() > keepFrames) {
             AVFrame* droppedFrame = queue.front();
             queue.pop();
+            if (!arrivalTimes.empty()) {
+                arrivalTimes.pop();
+            }
             recycleFrame(freeQueue, droppedFrame);
             framesDroppedStat++;
             overflowDropStat++;
@@ -186,7 +205,7 @@ AVFrame* AVFrameQueue::pop(bool* consumed) {
             static_cast<double>(queue.size()) - desiredDepth;
         const double occupancyCorrection = std::clamp(
             depthError * kOccupancyCorrectionPerFrame,
-            -kMaximumOccupancyCorrection, kMaximumOccupancyCorrection);
+            -kMaximumOccupancyUndercorrection, kMaximumOccupancyCorrection);
         const double framesPerDraw =
             std::max(0.0, baseFramesPerDraw + occupancyCorrection);
 
@@ -198,7 +217,20 @@ AVFrame* AVFrameQueue::pop(bool* consumed) {
             frameCredit += framesPerDraw;
             const size_t wholeFrames = static_cast<size_t>(frameCredit);
             frameCredit -= static_cast<double>(wholeFrames);
-            dueFrames = std::min(wholeFrames, limit);
+
+            // Catch-up is bounded by the backlog that actually exists, never by
+            // the cadence estimate alone. One long draw (an HID poll, a scheduler
+            // slot, a slow socket) drags averageDrawInterval up for the next ~16
+            // draws, which pushed framesPerDraw past 2 and made the pacer throw
+            // away 5 to 13 frames in a burst - the "PACING: skipped 13 frame(s)"
+            // entries that were the last remaining judder source. With the depth
+            // sitting on its target there is no backlog to catch up on, so a
+            // noisy estimate must not be able to justify discarding a frame.
+            const size_t playoutWindow = targetBufferedFrames + 1;
+            const size_t backlog =
+                queue.size() > playoutWindow ? queue.size() - playoutWindow : 0;
+
+            dueFrames = std::min(wholeFrames, std::min(backlog + 1, limit));
         }
     }
 
@@ -228,9 +260,17 @@ AVFrame* AVFrameQueue::pop(bool* consumed) {
     const size_t consumeCount = std::min(queue.size(), dueFrames);
 
     recycleFrame(freeQueue, bufferFrame);
+    bool havePresentedArrival = false;
+    std::chrono::steady_clock::time_point presentedArrival{};
     for (size_t i = 0; i < consumeCount; i++) {
         AVFrame* item = queue.front();
         queue.pop();
+
+        std::chrono::steady_clock::time_point arrival{};
+        if (!arrivalTimes.empty()) {
+            arrival = arrivalTimes.front();
+            arrivalTimes.pop();
+        }
 
         if (i + 1 < consumeCount) {
             recycleFrame(freeQueue, item);
@@ -238,6 +278,22 @@ AVFrame* AVFrameQueue::pop(bool* consumed) {
             pacingSkipStat++;
         } else {
             bufferFrame = item;
+            presentedArrival = arrival;
+            havePresentedArrival = true;
+        }
+    }
+
+    // The presented frame's queue wait is the part of the end-to-end latency the
+    // client adds itself: everything above the jitter reserve is pure delay.
+    if (havePresentedArrival) {
+        const double waitMs =
+            std::chrono::duration<double, std::milli>(now - presentedArrival)
+                .count();
+        if (waitMs >= 0.0) {
+            presentWaitMs = waitMs;
+            presentWaitSumStat += waitMs;
+            presentWaitSamplesStat++;
+            peakPresentWaitStat = std::max(peakPresentWaitStat, waitMs);
         }
     }
 
@@ -334,6 +390,11 @@ size_t AVFrameQueue::getPacingSkipStat() const {
     return pacingSkipStat;
 }
 
+size_t AVFrameQueue::getTrimSkipStat() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return trimSkipStat;
+}
+
 size_t AVFrameQueue::getScheduledHoldStat() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return scheduledHoldStat;
@@ -377,8 +438,10 @@ bool AVFrameQueue::pushTransferredLocked(AVFrame* item) {
         return false;
     }
 
+    const auto arrivalNow = std::chrono::steady_clock::now();
     queue.push(item);
-    recordArrivalLocked(std::chrono::steady_clock::now());
+    arrivalTimes.push(arrivalNow);
+    recordArrivalLocked(arrivalNow);
     pushesSincePop++;
     maxPushBurstStat = std::max(maxPushBurstStat, pushesSincePop);
 
@@ -387,6 +450,9 @@ bool AVFrameQueue::pushTransferredLocked(AVFrame* item) {
         while (queue.size() > keepFrames) {
             AVFrame* droppedFrame = queue.front();
             queue.pop();
+            if (!arrivalTimes.empty()) {
+                arrivalTimes.pop();
+            }
             recycleFrame(freeQueue, droppedFrame);
             framesDroppedStat++;
             overflowDropStat++;
@@ -494,10 +560,30 @@ void AVFrameQueue::trimToPlayoutWindowLocked() {
     while (queue.size() > keepFrames) {
         AVFrame* droppedFrame = queue.front();
         queue.pop();
+        if (!arrivalTimes.empty()) {
+            arrivalTimes.pop();
+        }
         recycleFrame(freeQueue, droppedFrame);
         framesDroppedStat++;
         pacingSkipStat++;
+        trimSkipStat++;
     }
+}
+
+double AVFrameQueue::getPresentWaitMs() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return presentWaitMs;
+}
+
+void AVFrameQueue::takePresentWaitStats(double& avgMs, double& peakMs) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    avgMs = presentWaitSamplesStat > 0
+                ? presentWaitSumStat / static_cast<double>(presentWaitSamplesStat)
+                : presentWaitMs;
+    peakMs = peakPresentWaitStat;
+    presentWaitSumStat = 0.0;
+    presentWaitSamplesStat = 0;
+    peakPresentWaitStat = 0.0;
 }
 
 void AVFrameQueue::cleanup() {
@@ -508,6 +594,7 @@ void AVFrameQueue::cleanup() {
     rebufferHoldStat = 0;
     overflowDropStat = 0;
     pacingSkipStat = 0;
+    trimSkipStat = 0;
     scheduledHoldStat = 0;
     pushesSincePop = 0;
     maxPushBurstStat = 0;
@@ -523,6 +610,10 @@ void AVFrameQueue::cleanup() {
     frameCredit = 0.0;
     startupBuffering = true;
     playoutResyncNeeded = true;
+    presentWaitMs = 0.0;
+    presentWaitSumStat = 0.0;
+    presentWaitSamplesStat = 0;
+    peakPresentWaitStat = 0.0;
 
     if (bufferFrame) {
         av_frame_free(&bufferFrame);
@@ -531,5 +622,6 @@ void AVFrameQueue::cleanup() {
     freeFrameQueue(queue);
     freeFrameQueue(freeQueue);
     queue = {};
+    arrivalTimes = {};
     freeQueue = {};
 }

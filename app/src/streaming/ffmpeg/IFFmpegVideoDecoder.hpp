@@ -15,6 +15,11 @@ struct VideoDecodeStats {
     uint32_t current_reassembly_time;
     uint32_t current_decode_time;
   uint32_t current_decoder_delay_time;
+    // Host-side encode time, accumulated in the 1/10 ms units the host reports
+    // it in. Samples are counted separately because the host sends 0 for frames
+    // it repeated, and those zeroes must not drag the average down.
+    uint32_t current_host_latency_time;
+    uint32_t current_host_latency_samples;
     uint32_t total_received_frames;
     uint32_t total_decoded_frames;
     uint32_t total_reassembly_time;
@@ -28,6 +33,9 @@ struct VideoDecodeStats {
     float current_receive_time;
     float current_decoding_time;
     float current_decoder_delay;
+    // Average time the host spent capturing and encoding a frame, in ms. Zero
+    // when the host does not report it.
+    float current_host_latency;
 
     float session_receive_time;
     float session_decoding_time;

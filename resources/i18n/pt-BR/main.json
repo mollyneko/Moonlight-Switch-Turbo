@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Mostrar janela de debug",
+        "log_to_file": "Gravar log em arquivo (cartao SD)",
         "frame_buffer": "Buffer de quadros (menor = menos latência)",
         "decoder_threads": "Decor Threads",
         "fps": "FPS",

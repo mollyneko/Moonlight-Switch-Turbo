@@ -117,6 +117,7 @@
         },
         "debug": "调试",
         "debugging_view": "显示调试画面",
+        "log_to_file": "记录日志到文件（SD 卡）",
         "frame_buffer": "视频帧缓冲（越小延迟越低）",
         "decoder_threads": "解码器线程",
         "fps": "FPS",

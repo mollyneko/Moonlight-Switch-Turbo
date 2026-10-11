@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Afficher la vue Debug",
+        "log_to_file": "Ecrire le journal sur la carte SD",
         "frame_buffer": "Tampon d'images (plus bas = moins de latence)",
         "decoder_threads": "Threads de décodage",
         "fps": "FPS",

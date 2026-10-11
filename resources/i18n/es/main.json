@@ -117,6 +117,7 @@
         },
         "debug": "Debug",
         "debugging_view": "Mostrar la vista de debug",
+        "log_to_file": "Escribir el registro en la tarjeta SD",
         "frame_buffer": "Búfer de fotogramas (menor = menos latencia)",
         "decoder_threads": "Decoder Threads",
         "fps": "FPS",

@@ -20,6 +20,7 @@ unsigned int sceLibcHeapSize             = 24 * 1024 * 1024;
 }
 #endif
 
+#include <cstdio>
 #include <cstdlib>
 
 #include <borealis.hpp>
@@ -34,6 +35,7 @@ unsigned int sceLibcHeapSize             = 24 * 1024 * 1024;
 #include "views/boolean_slider_cell.hpp"
 
 #include "DiscoverManager.hpp"
+#include "FileLogger.hpp"
 #include "MoonlightSession.hpp"
 #include "SwitchMoonlightSessionDecoderAndRenderProvider.hpp"
 
@@ -114,8 +116,10 @@ int main(int argc, char* argv[]) {
 #endif
 
     // Set log level
-    // We recommend to use INFO for real apps
-    brls::Logger::setLogLevel(brls::LogLevel::LOG_DEBUG);
+    // INFO keeps the on-SD log small: DEBUG would emit per-frame chatter
+    // (frame mappings, rumble, renderer FPS) that is useless for diagnosing a
+    // slow stream. Everything the telemetry below reports is INFO.
+    brls::Logger::setLogLevel(brls::LogLevel::LOG_INFO);
 
     // Init the app and i18n
     if (!brls::Application::init()) {
@@ -138,6 +142,21 @@ int main(int argc, char* argv[]) {
     Settings::instance().set_working_dir(home);
     Settings::instance().set_launch_path(argc > 0 ? argv[0] : "");
     brls::Logger::info("Working dir, {}", home);
+
+    // Optional on-SD log, toggled from Settings > Debug. The telemetry below is
+    // written here, which is the only way to diagnose a bad stream on a retail
+    // unit (stdout is never shown there).
+    FileLog::setEnabled(Settings::instance().log_to_file());
+
+#ifdef __SWITCH__
+    // Running from the album (applet mode) gives the process a smaller memory
+    // budget and lower clocks than a full application, which by itself can
+    // explain stutter that never appears on the host. Record it up front.
+    brls::Logger::info(
+        "Switch: applet_type={} operation_mode={} window={}x{}",
+        (int) appletGetAppletType(), (int) appletGetOperationMode(),
+        brls::Application::windowWidth, brls::Application::windowHeight);
+#endif
 
     // Have the application register an action on every activity that will quit
     // when you press BUTTON_START
@@ -202,8 +221,11 @@ int main(int argc, char* argv[]) {
         // everywhere else, so this is the only place that ever happens.
         delete session;
     }
-    // Counterpart of appletInitializeGamePlayRecording() above.
-    appletEndGamePlayRecording();
+    // NOTE: libnx provides no "end" counterpart to appletInitializeGamePlayRecording()
+    // (only appletIsGamePlayRecordingSupported / appletSetGamePlayRecordingState /
+    // appletInitializeGamePlayRecording). Its recording resources are released
+    // automatically by appletExit() during process teardown, so no explicit
+    // teardown call is required or available here.
 #endif
 
 #if defined(PLATFORM_TVOS)

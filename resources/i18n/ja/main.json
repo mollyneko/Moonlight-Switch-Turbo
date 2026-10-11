@@ -117,6 +117,7 @@
         },
         "debug": "デバッグ",
         "debugging_view": "デバッグビューを表示する",
+        "log_to_file": "ログをファイルに保存（SDカード）",
         "frame_buffer": "映像フレームバッファ（小さいほど低遅延）",
         "decoder_threads": "デコーダースレッド",
         "fps": "FPS",

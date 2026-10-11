@@ -7,6 +7,12 @@
 struct SessionStats {
     VideoDecodeStats video_decode_stats;
     VideoRenderStats video_render_stats;
+
+    // Latency breakdown, refreshed once a second alongside the log line. The
+    // queue wait is the only term the client controls; the rest is the host,
+    // the link and the panel.
+    float queue_wait_ms;
+    float estimated_glass_ms;
 };
 
 class MoonlightSession {
@@ -69,6 +75,10 @@ class MoonlightSession {
     static void audio_renderer_cleanup();
     static void audio_renderer_decode_and_play_sample(char*, int);
 
+    // Writes a one-line summary of the live stream health (framerates, dropped
+    // frames, decode/render times, queue occupancy, network RTT) to the log.
+    void log_telemetry();
+
     std::string m_address;
     int m_app_id;
     bool m_is_sunshine = false;
@@ -89,4 +99,15 @@ class MoonlightSession {
 
     SessionStats m_session_stats = {};
     uint64_t m_last_stats_update_ms = 0;
+    uint64_t m_last_telemetry_ms = 0;
+
+    // Previous telemetry counters, so stutter events can be reported per second
+    // rather than only as ever-growing session totals.
+    size_t m_prev_pacing_skip = 0;
+    size_t m_prev_trim_skip = 0;
+    size_t m_prev_queue_empty = 0;
+    size_t m_prev_overflow = 0;
+    size_t m_prev_resync = 0;
+    uint32_t m_prev_net_dropped = 0;
+    uint32_t m_telemetry_ticks = 0;
 };

@@ -10,6 +10,7 @@
 #endif
 
 #include "settings_tab.hpp"
+#include "FileLogger.hpp"
 #include "Settings.hpp"
 #include "helper.hpp"
 #include "button_selecting_dialog.hpp"
@@ -753,6 +754,12 @@ SettingsTab::SettingsTab() {
                        Settings::instance().set_write_log(value);
                        brls::Application::enableDebuggingView(value);
                    });
+
+    logToFile->init("settings/log_to_file"_i18n,
+                    Settings::instance().log_to_file(), [](bool value) {
+                        Settings::instance().set_log_to_file(value);
+                        FileLog::setEnabled(value);
+                    });
 }
 
 void SettingsTab::updateDeadZoneItems() {

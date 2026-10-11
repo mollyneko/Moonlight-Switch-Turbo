@@ -117,6 +117,7 @@
         },
         "debug": "除錯",
         "debugging_view": "顯示除錯畫面",
+        "log_to_file": "記錄日誌到檔案（SD 卡）",
         "frame_buffer": "視訊幀緩衝（越小延遲越低）",
         "decoder_threads": "解碼器執行緒",
         "fps": "FPS",

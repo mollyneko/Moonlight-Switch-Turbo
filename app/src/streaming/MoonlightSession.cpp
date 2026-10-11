@@ -153,8 +153,13 @@ void MoonlightSession::connection_rumble_triggers(uint16_t controllerNumber,
 
 void MoonlightSession::connection_status_update(int connection_status) {
     if (m_active_session) {
-        m_active_session->m_connection_status_is_poor =
-            connection_status == CONN_STATUS_POOR;
+        const bool is_poor = connection_status == CONN_STATUS_POOR;
+        if (is_poor != m_active_session->m_connection_status_is_poor) {
+            brls::Logger::warning(
+                "MoonlightSession: connection quality is now {}",
+                is_poor ? "POOR" : "OK");
+        }
+        m_active_session->m_connection_status_is_poor = is_poor;
     }
 }
 
@@ -308,6 +313,19 @@ void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
         break;
     }
 
+    brls::Logger::info(
+        "MoonlightSession: requested {}x{} @{}fps, {} kbps, codec {}, hdr {}, "
+        "queue {}, decoder_threads {}, post-processing: upscaling={} "
+        "dithering={} rcas={}",
+        w, h, m_config.fps, m_config.bitrate,
+        getVideoCodecName(Settings::instance().video_codec()),
+        Settings::instance().request_hdr() ? "on" : "off",
+        Settings::instance().frames_queue_size(),
+        Settings::instance().decoder_threads(),
+        Settings::instance().upscaling() ? "on" : "off",
+        Settings::instance().dithering() ? "on" : "off",
+        Settings::instance().rcas() ? "on" : "off");
+
     LiInitializeConnectionCallbacks(&m_connection_callbacks);
     m_connection_callbacks.stageStarting = connection_stage_starting;
     m_connection_callbacks.stageComplete = connection_stage_complete;
@@ -347,6 +365,13 @@ void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
         m_address, m_config, m_app_id, [this, callback](auto result) {
             if (result.isSuccess()) {
                 m_config = result.value();
+                brls::Logger::info(
+                    "MoonlightSession: negotiated {}x{} @ {} fps, {} kbps, "
+                    "formats 0x{:x}, refresh_x100 {}, audio 0x{:x}, remote {}",
+                    m_config.width, m_config.height, m_config.fps,
+                    m_config.bitrate, m_config.supportedVideoFormats,
+                    m_config.clientRefreshRateX100, m_config.audioConfiguration,
+                    (int) m_config.streamingRemotely);
                 brls::async([this, callback]() mutable {
                     auto m_data =
                         GameStreamClient::instance().server_data(m_address);
@@ -416,5 +441,143 @@ void MoonlightSession::draw(NVGcontext* vg, int width, int height) {
                 *m_video_renderer->video_render_stats();
             m_last_stats_update_ms = now;
         }
+
+        // Snapshot the session health once a second so a stutter can be traced
+        // to network, decode, render or pacing after the fact.
+        if (m_last_telemetry_ms == 0 || now - m_last_telemetry_ms >= 1000) {
+            m_last_telemetry_ms = now;
+            log_telemetry();
+        }
+    }
+}
+
+namespace {
+// Counters only grow within a session, but the guard keeps a restarted session
+// from producing a nonsense negative delta.
+template <typename T> T counterDelta(T current, T previous) {
+    return current >= previous ? static_cast<T>(current - previous) : T(0);
+}
+} // namespace
+
+void MoonlightSession::log_telemetry() {
+    if (!m_video_decoder || !m_video_renderer)
+        return;
+
+    const auto& dec = m_session_stats.video_decode_stats;
+    const auto& ren = m_session_stats.video_render_stats;
+    auto& holder = AVFrameHolder::instance();
+
+    const size_t pacing_skip = holder.getFrameQueuePacingSkipStat();
+    const size_t trim_skip = holder.getFrameQueueTrimSkipStat();
+    const size_t queue_empty = holder.getFrameQueueEmptyStat();
+    const size_t overflow = holder.getFrameQueueOverflowDropStat();
+    const size_t resync = holder.getFrameQueuePlayoutResyncStat();
+
+    const size_t d_pacing_skip = counterDelta(pacing_skip, m_prev_pacing_skip);
+    const size_t d_trim_skip = counterDelta(trim_skip, m_prev_trim_skip);
+    const size_t d_queue_empty = counterDelta(queue_empty, m_prev_queue_empty);
+    const size_t d_overflow = counterDelta(overflow, m_prev_overflow);
+    const size_t d_resync = counterDelta(resync, m_prev_resync);
+    const uint32_t d_net_dropped =
+        counterDelta(dec.network_dropped_frames, m_prev_net_dropped);
+
+    m_prev_pacing_skip = pacing_skip;
+    m_prev_trim_skip = trim_skip;
+    m_prev_queue_empty = queue_empty;
+    m_prev_overflow = overflow;
+    m_prev_resync = resync;
+    m_prev_net_dropped = dec.network_dropped_frames;
+
+    uint32_t rtt = 0;
+    uint32_t rtt_variance = 0;
+    const bool has_rtt = LiGetEstimatedRttInfo(&rtt, &rtt_variance);
+
+    // Where the lag actually goes. Until now the log only carried RTT, so a
+    // "it feels laggy" report could only be guessed at. These three numbers
+    // separate host encode time, network round trip and client buffering.
+    double queue_wait = 0.0;
+    double queue_wait_peak = 0.0;
+    holder.takeFrameQueuePresentWaitStats(queue_wait, queue_wait_peak);
+    const double host_enc = dec.current_host_latency;
+    const double network_one_way = has_rtt ? rtt / 2.0 : 0.0;
+    const double est_glass = host_enc + network_one_way + queue_wait +
+                             dec.current_decoding_time + ren.rendering_time;
+
+    brls::Logger::info(
+        "TELEMETRY host_fps={:.2f} recv_fps={:.2f} decode_fps={:.2f} "
+        "render_fps={:.2f} net_dropped={} recv_ms={:.2f} decode_ms={:.2f} "
+        "dec_delay_ms={:.2f} render_ms={:.2f} queue={}/{} cap={} "
+        "fake={} dropped={} skip_trim={} empty={} overflow={} resync={} est_src_fps={:.2f} "
+        "rtt_ms={}{} poor={}",
+        dec.current_host_fps, dec.current_received_fps, dec.current_decoded_fps,
+        ren.rendered_fps, dec.network_dropped_frames, dec.current_receive_time,
+        dec.current_decoding_time, dec.current_decoder_delay,
+        ren.rendering_time, holder.getFrameQueueSize(),
+        holder.getFrameQueueTargetDepth(), holder.getFrameQueueCapacity(),
+        holder.getFakeFrameStat(), holder.getFrameDropStat(), trim_skip,
+        queue_empty, overflow, resync,
+        holder.getFrameQueueEstimatedSourceFps(),
+        has_rtt ? rtt : 0, has_rtt ? "" : "(n/a)",
+        m_connection_status_is_poor ? "yes" : "no");
+
+    brls::Logger::info(
+        "LATENCY host_enc_ms={:.1f} net_oneway_ms={:.1f} queue_wait_ms={:.1f} "
+        "queue_wait_peak_ms={:.1f} decode_ms={:.1f} render_ms={:.1f} "
+        "est_glass_ms={:.1f}",
+        host_enc, network_one_way, queue_wait, queue_wait_peak,
+        dec.current_decoding_time, ren.rendering_time, est_glass);
+
+    m_session_stats.queue_wait_ms = static_cast<float>(queue_wait);
+    m_session_stats.estimated_glass_ms = static_cast<float>(est_glass);
+
+    // Per-second event lines. These turn a cumulative counter into a timestamp
+    // that can be lined up with a stutter the player actually saw.
+    if (d_net_dropped > 0)
+        brls::Logger::warning(
+            "STUTTER network: dropped {} frame(s) in the last second",
+            d_net_dropped);
+    if (d_queue_empty > 0)
+        brls::Logger::warning(
+            "STUTTER decode queue: starved {} time(s) in the last second",
+            d_queue_empty);
+    if (d_overflow > 0)
+        brls::Logger::warning(
+            "STUTTER decode queue: overflowed, discarded {} frame(s)", d_overflow);
+    if (d_pacing_skip > 0) {
+        // Split the two reasons a frame gets discarded: a genuine stale backlog
+        // being trimmed, versus the cadence estimate over-reaching and asking
+        // for more than one frame in a single draw.
+        const size_t cadenceSkips =
+            d_pacing_skip > d_trim_skip ? d_pacing_skip - d_trim_skip : 0;
+        brls::Logger::warning(
+            "PACING: skipped {} frame(s) to keep playback in sync "
+            "(backlog {}, cadence {})",
+            d_pacing_skip, d_trim_skip, cadenceSkips);
+    }
+    if (d_resync > 0)
+        brls::Logger::warning(
+            "PACING: resynced playback {} time(s) after missing a deadline",
+            d_resync);
+
+    // Every five seconds, name the dominant bottleneck so the log can be read at
+    // a glance instead of by comparing samples by hand.
+    if (++m_telemetry_ticks % 5 == 0) {
+        const char* verdict = "healthy";
+        if (d_net_dropped > 0 || m_connection_status_is_poor ||
+            (has_rtt && rtt > 25))
+            verdict = "NETWORK (packet loss or high latency)";
+        else if (ren.rendering_time > 12.0f)
+            verdict = "RENDER (GPU frame time close to the budget)";
+        else if (dec.current_decoding_time > 8.0f ||
+                 dec.current_decoder_delay > 6.0f)
+            verdict = "DECODE";
+        else if (d_queue_empty > 0 || d_resync > 0 || d_pacing_skip > 1)
+            verdict = "PACING (host frame arrival is uneven)";
+
+        brls::Logger::info(
+            "VERDICT: {} | render {:.1f}ms, decode {:.1f}ms, rtt {}ms, "
+            "est latency {:.0f}ms",
+            verdict, ren.rendering_time, dec.current_decoding_time,
+            has_rtt ? static_cast<int>(rtt) : -1, est_glass);
     }
 }

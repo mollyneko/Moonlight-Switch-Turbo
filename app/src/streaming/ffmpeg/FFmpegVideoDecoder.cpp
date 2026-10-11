@@ -709,6 +709,13 @@ int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
             m_last_frame = decode_unit->frameNumber;
         }
 
+        // Host-reported capture+encode time for this frame, in 1/10 ms units.
+        if (decode_unit->frameHostProcessingLatency != 0) {
+            m_video_decode_stats_progress.current_host_latency_time +=
+                decode_unit->frameHostProcessingLatency;
+            m_video_decode_stats_progress.current_host_latency_samples++;
+        }
+
         m_video_decode_stats_progress.current_received_frames++;
         m_video_decode_stats_progress.total_frames++;
 
@@ -827,6 +834,12 @@ int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
                                                                    (float) m_video_decode_stats_cache.current_decoded_frames;
                 m_video_decode_stats_cache.current_decoder_delay = (float) m_video_decode_stats_cache.current_decoder_delay_time /
                                                                    (float) m_video_decode_stats_cache.current_decoded_frames;
+
+                m_video_decode_stats_cache.current_host_latency =
+                    m_video_decode_stats_cache.current_host_latency_samples > 0
+                        ? (float) m_video_decode_stats_cache.current_host_latency_time /
+                              (float) m_video_decode_stats_cache.current_host_latency_samples / 10.0f
+                        : 0.0f;
 
                 m_video_decode_stats_cache.session_receive_time = (float) m_video_decode_stats_cache.total_reassembly_time /
                                                                   (float) m_video_decode_stats_cache.total_received_frames;

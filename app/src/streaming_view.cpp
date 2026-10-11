@@ -104,7 +104,12 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
 
                 loader->setHidden(true);
                 if (!result.isSuccess()) {
+                    brls::Logger::error(
+                        "StreamingView: stream failed to start: {}",
+                        result.error());
                     showError(result.error(), [this]() { terminate(false); });
+                } else {
+                    brls::Logger::info("StreamingView: stream started");
                 }
             }, result.value().isSunshine());
         });
@@ -296,10 +301,16 @@ void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
     // wedges the console when the app is closed later, so rebuild the session
     // instead of continuing. Same suspension heuristic AVFrameHolder uses:
     // while the app actually runs, no two frames are a whole second apart.
+    //
+    // A real suspend is many seconds long, so the threshold sits well above the
+    // longest hiccup a streaming frame can suffer. At one second a single slow
+    // SD write was enough to tear the whole session down and renegotiate it,
+    // which is a far worse experience than simply dropping the frames that
+    // were missed.
     const auto now = std::chrono::steady_clock::now();
     const auto sinceLastDraw = now - lastDrawTime;
     lastDrawTime = now;
-    if (sinceLastDraw > std::chrono::seconds(1)) {
+    if (sinceLastDraw > std::chrono::seconds(3)) {
         brls::Logger::info(
             "StreamingView: drew {}ms after the previous frame, restarting the "
             "session",
@@ -390,6 +401,16 @@ void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
                 /*stats->video_render_stats.rendered_frames*/);
         }
 
+        // The buffer setting only trades latency for smoothness; these two
+        // numbers are the trade, so show them rather than leaving the player to
+        // guess whether a depth change helped.
+        statistics += fmt::format(
+            "Estimated end-to-end latency: {:.{}f} ms\n"
+            "Queue wait (live) | host encoder: {:.{}f} | {:.{}f} ms\n",
+            stats->estimated_glass_ms, 1,
+            AVFrameHolder::instance().getFrameQueuePresentWaitMs(), 1,
+            stats->video_decode_stats.current_host_latency, 1);
+
         statistics += fmt::format("Frames queue underflows | skipped: {} | {}\n"
                                   "Queue empty | startup holds: {} | {}\n"
                                   "Queue overflow | paced skips: {} | {}\n"
@@ -457,6 +478,9 @@ void StreamingView::terminate(bool terminateApp) {
     if (terminated)
         return;
     terminated = true;
+
+    brls::Logger::info("StreamingView: terminating session (terminate_app={})",
+                       terminateApp);
 
     session->stop(terminateApp);
 
