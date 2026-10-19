@@ -70,7 +70,7 @@ endif ()
 
 set(VERSION_MAJOR "1")
 set(VERSION_MINOR "5")
-set(VERSION_ALTER "11")
+set(VERSION_ALTER "12")
 set(VERSION_BUILD "1")
 set(PACKAGE_NAME "ru.xitrix.Moonlight")
 set(PSN_TITLE_ID  "MNTL00000")
@@ -390,11 +390,15 @@ elseif (PLATFORM_SWITCH)
     # .github/workflows/docker-image.yml so a local build produces the exact
     # file name a release ships.
     set(NRO_DIST_NAME "Moonlight-Switch.nro")
+    # Title shown under the icon on the Switch home menu. Only this string
+    # changes: the project, the artifact names and the SD card data directory
+    # all keep the upstream "Moonlight" spelling they are referenced by.
+    set(SWITCH_NACP_NAME "Moonlight-Switch-Turbo")
     if (USE_DEKO3D)
         gen_dksh("${PROJECT_RESOURCES}/shaders")
     endif ()
     add_custom_target(${PROJECT_NAME}.nro DEPENDS ${PROJECT_NAME}
-        COMMAND ${NX_NACPTOOL_EXE} --create "${PROJECT_NAME}" "${PROJECT_AUTHOR}" "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}" ${PROJECT_NAME}.nacp --titleid=${PROJECT_TITLEID}
+        COMMAND ${NX_NACPTOOL_EXE} --create "${SWITCH_NACP_NAME}" "${PROJECT_AUTHOR}" "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}" ${PROJECT_NAME}.nacp --titleid=${PROJECT_TITLEID}
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/resources
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_RESOURCES} ${CMAKE_BINARY_DIR}/resources
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/resources/font
