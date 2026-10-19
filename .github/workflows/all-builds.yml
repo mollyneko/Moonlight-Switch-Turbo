@@ -13,15 +13,6 @@ jobs:
     name: Nintendo Switch
     uses: ./.github/workflows/docker-image.yml
 
-  psvita:
-    name: PS Vita
-    uses: ./.github/workflows/psvita.yml
-
-  android:
-    name: Android
-    uses: ./.github/workflows/android-apk.yml
-    secrets: inherit
-
   macos:
     name: macOS
     uses: ./.github/workflows/macos.yml
