@@ -11,16 +11,19 @@ adapts down to zero frames of reserve, and the audio pool is capped at 25 ms.
 
 ---
 
-## Latency: 1.5.0 → 1.5.11
+## Latency: 1.5.0 → 1.5.13
 
-1.5.11 is the version where the latency work landed in full. Everything below is derived from the code, at
+All of it is present in the current release, 1.5.13. Everything below is derived from the code, at
 **60 fps (one frame = 16.67 ms)**, and covers only the latency the client adds on top of the host. Each of the
 three paths — video, audio, controller input — is broken into its sub-stages, because they fail and improve for
 different reasons.
 
+> 1.5.12 and 1.5.13 changed nothing but the title shown in the home menu, so these figures describe the shipped
+> build rather than some intermediate revision.
+
 ### At a glance
 
-| Path | What the number bounds | 1.5.0 | 1.5.11 | Change |
+| Path | What the number bounds | 1.5.0 | 1.5.13 | Change |
 |:---|:---|---:|---:|---:|
 | **Video** — queue residency | age of the frame on screen | 1.00 frame · 16.7 ms | 0.00 frame · **0 ms** | −16.7 ms |
 | **Input** — sampling wait (mean) | age of the button press | 0.50 frame · 8.3 ms | 0.25 frame · **4.2 ms** | −4.2 ms |
@@ -42,7 +45,7 @@ the rest changed in ways that keep the pipeline from stalling.
 The queue exists to absorb network jitter. Every frame held in it is a frame of latency paid on every frame,
 whether or not jitter occurs.
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Target depth | `min(configured depth − 1, 2)`, fixed for the session | same value as a baseline, then adaptive |
 | Default target (depth 2) | 1 frame · 16.7 ms | 1 frame for the first 5 s, then **0 frames** |
@@ -51,10 +54,10 @@ whether or not jitter occurs.
 | Steady-state residency | 16.7 ms | **0 ms** |
 | Residency after an underrun | 16.7 ms | 16.7 ms — the reserve comes back |
 
-With a deeper configured queue the fixed reserve costs more, which is why 1.5.0 degrades faster than 1.5.11 as
+With a deeper configured queue the fixed reserve costs more, which is why 1.5.0 degrades faster than 1.5.13 as
 the setting goes up:
 
-| Frame queue setting | 1.5.0 target | 1.5.11 target (steady) | 1.5.0 residency | 1.5.11 residency |
+| Frame queue setting | 1.5.0 target | 1.5.13 target (steady) | 1.5.0 residency | 1.5.13 residency |
 |:---|---:|---:|---:|---:|
 | 1 | 0 | 0 | 0 ms | 0 ms |
 | 2 (default) | 1 | 0 | 16.7 ms | **0 ms** |
@@ -66,7 +69,7 @@ Being configured for a shallow queue is not the same as sitting at it. The pacin
 toward the target every draw; if the correction is too weak, a burst leaves the queue deep and it stays deep for
 the rest of the session.
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Occupancy gain | 0.01 per frame | **0.06 per frame** |
 | Correction at a 2-frame error | 0.02 frames/draw | **0.12 frames/draw** |
@@ -85,7 +88,7 @@ The post-process chain reuses render targets and uniform buffers across frames, 
 overwrite them, the previous chain has to be finished. Where that wait sits decides whether the CPU is parked
 on the GPU.
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Signal + wait | `queueSignalFence()` then `queueWaitFence()` back to back, inside the draw | signal in this draw, wait at the **top of the next draw** |
 | What runs during the GPU work | nothing — the CPU is blocked | input sampling, overlay checks, UI pass of the previous frame |
@@ -95,7 +98,7 @@ The fence is only re-signalled after the deferred wait, so the signal cannot be 
 
 ### 1.4 Post-processing chain
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Stages | EASU upscale → RCAS sharpen → copy into the framebuffer | EASU → RCAS **written straight into the framebuffer** when dithering is off |
 | Extra full-resolution copy | yes, one per frame | none in the RCAS-only path |
@@ -106,7 +109,7 @@ dropped when RCAS is the last stage.
 
 ### 1.5 Startup and underrun recovery
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Startup | fill the reserve, and rebuild the **whole** reserve after every ordinary miss | fill the reserve once, then hand frames back |
 | Recovery cadence | freeze-and-catch-up cycles, each one a visible stutter | 5 s without an underrun hands back one frame; an underrun restores it and doubles the wait (capped at 12×, i.e. 60 s) |
@@ -116,12 +119,12 @@ dropped when RCAS is the last stage.
 
 For completeness, since it is often assumed to be part of the win: the decoder configuration is the same in
 both versions — `AV_CODEC_FLAG_LOW_DELAY`, `AV_CODEC_FLAG2_FAST`, `SHOW_ALL`, `OUTPUT_CORRUPT`, and
-`FF_THREAD_SLICE` with the configured thread count. Decode latency did not move between 1.5.0 and 1.5.11; what
+`FF_THREAD_SLICE` with the configured thread count. Decode latency did not move between 1.5.0 and 1.5.13; what
 moved is everything downstream of it.
 
 ### Video sub-total
 
-| Sub-stage | 1.5.0 | 1.5.11 | Change |
+| Sub-stage | 1.5.0 | 1.5.13 | Change |
 |:---|---:|---:|---:|
 | 1.1 Queue residency | 16.7 ms | 0 ms | −16.7 ms |
 | 1.2 Convergence (transient) | up to 3.8 s of elevated depth | up to 0.6 s | −3.2 s of tail |
@@ -140,7 +143,7 @@ was pinned at its worst case for the entire session.
 
 ### 2.1 Pool depth — 62.5 → 25 ms
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Opus frame | 12.5 ms (600 samples @ 48 kHz) | same |
 | Wave buffers allocated | 5 | 5 (unchanged) |
@@ -148,11 +151,11 @@ was pinned at its worst case for the entire session.
 | Worst-case buffered audio | 5 × 12.5 = **62.5 ms** | 2 × 12.5 = **25.0 ms** |
 | Steady-state buffered audio | 62.5 ms, because the pool stayed full | ≤ 25.0 ms |
 
-The allocation is untouched; 1.5.11 simply refuses to queue into more than two of them.
+The allocation is untouched; 1.5.13 simply refuses to queue into more than two of them.
 
 ### 2.2 Backpressure policy — blocking → dropping
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | When the pool is full | `write_audio()` blocks until a wave buffer frees | whole frames are dropped once `LiGetPendingAudioDuration() > 30` ms |
 | Effect on the pool | permanently full — the 0.5 s desync guard behind it was unreachable | bounded at 2 buffers |
@@ -162,7 +165,7 @@ This is the single change that made the pool depth real rather than nominal.
 
 ### 2.3 Drift correction — removed
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Mechanism | drop one buffer every 400 calls | removed |
 | 0.5 s desync guard | present in code, never reached because the write blocked first | removed |
@@ -170,7 +173,7 @@ This is the single change that made the pool depth real rather than nominal.
 
 ### 2.4 Frame and mix buffering
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Opus frame | 12.5 ms | 12.5 ms |
 | audren mix buffers | 2 | 2 |
@@ -180,7 +183,7 @@ Both are fixed costs and are not counted in the delta.
 
 ### Audio sub-total
 
-| Sub-stage | 1.5.0 | 1.5.11 | Change |
+| Sub-stage | 1.5.0 | 1.5.13 | Change |
 |:---|---:|---:|---:|
 | 2.1 Queue depth | 62.5 ms | 25.0 ms | −37.5 ms |
 | 2.2 Backpressure | pinned at the maximum | bounded, overflow dropped | keeps 2.1 from regressing |
@@ -200,7 +203,7 @@ third, and removed enough per-frame work that the poll itself is cheaper.
 A press can land anywhere inside a sampling interval. If sampling is uniform, the expected wait is half the
 interval.
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Samples per frame | 1 | **2** |
 | Sampling interval | 16.7 ms | **8.3 ms** |
@@ -214,7 +217,7 @@ call, so their behaviour is unchanged.
 
 Cadence is not the whole story — a packet that is sampled early but sent late is just as late.
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Where the (only / first) sample runs | after the render pass is submitted | **before** the render pass |
 | Extra wait before the packet leaves | the render pass duration | 0 |
@@ -225,7 +228,7 @@ send follows the sample by a few microseconds instead of by a whole render pass.
 
 ### 3.3 Transmit policy — diffed, unchanged
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Comparison | `GamepadState::is_equal` per controller | same |
 | What is sent | only a changed state | only a changed state |
@@ -236,7 +239,7 @@ above. It also means holding a button costs no bandwidth in either version.
 
 ### 3.4 Touch, mouse and keyboard sub-path
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Sampled at | frame start | frame start |
 | Sampled by the second call | — | no |
@@ -247,7 +250,7 @@ where it was cheap and safe: to the pad.
 
 ### 3.5 Per-frame CPU work removed
 
-| | 1.5.0 | 1.5.11 |
+| | 1.5.0 | 1.5.13 |
 |:---|:---|:---|
 | Stick deadzone | `fsqrt_` bit-trick square root, then compare | squared-distance compare — exact, no root |
 | Touch state buffer | `std::vector` constructed per call | static, cleared and reused |
@@ -259,7 +262,7 @@ doubling the cost of the input path.
 
 ### Input sub-total
 
-| Sub-stage | 1.5.0 | 1.5.11 | Change |
+| Sub-stage | 1.5.0 | 1.5.13 | Change |
 |:---|---:|---:|---:|
 | 3.1 Sampling wait (mean) | 8.3 ms | 4.2 ms | −4.2 ms |
 | 3.1 Sampling wait (worst) | 16.7 ms | 8.3 ms | −8.3 ms |
@@ -283,7 +286,7 @@ one frame = 16.7 ms, 60 Hz
  input                                                     [sample] -> send
          ^ press anywhere here waits up to a full frame
 
-1.5.11
+1.5.13
  input  [sample] -> send                                     [sample] -> send
  video  |---------- render + submit ----------|
         | queue floor: 0 frames |                          (0 ms of age)
@@ -292,7 +295,7 @@ one frame = 16.7 ms, 60 Hz
 
 ### Combined client-side budget
 
-| Term | 1.5.0 | 1.5.11 |
+| Term | 1.5.0 | 1.5.13 |
 |:---|---:|---:|
 | Video residency | 16.7 ms | 0 ms |
 | Input sampling wait | 8.3 ms | 4.2 ms |
@@ -301,7 +304,7 @@ one frame = 16.7 ms, 60 Hz
 At 30 fps the frame period doubles and both terms double with it; at 120 fps they halve. The Switch outputs
 60 Hz in handheld and docked, which is what the client advertises (`clientRefreshRateX100 = 6000`).
 
-| Refresh rate | Frame period | 1.5.0 | 1.5.11 | Change |
+| Refresh rate | Frame period | 1.5.0 | 1.5.13 | Change |
 |:---|---:|---:|---:|---:|
 | 30 fps | 33.3 ms | 50.0 ms | **8.3 ms** | −41.7 ms |
 | 60 fps | 16.7 ms | 25.0 ms | **4.2 ms** | −20.8 ms |
@@ -326,7 +329,7 @@ T_audio      = max queued wave buffers x 12.5 ms    -> lip-sync offset, separate
          total                               25.00 ms
          audio  5 x 12.5                   = 62.50 ms
 
-1.5.11   video  0 x 16.67                   =  0.00
+1.5.13   video  0 x 16.67                   =  0.00
          input  16.67 / 2 / 2              =  4.17
          total                                4.17 ms
          audio  2 x 12.5                   = 25.00 ms
@@ -344,7 +347,7 @@ purpose — this document measures only what the client changed. The fence and c
 > on link jitter and the host encoder.
 >
 > As a reference point, one measured session at 4 ms RTT showed ~68 ms end-to-end, of which ~60 ms was queue
-> backlog — precisely the part 1.5.11 attacks. That measurement predates the pacing fix, so it is an upper
+> backlog — precisely the part 1.5.13 attacks. That measurement predates the pacing fix, so it is an upper
 > bound rather than a description of the current build.
 
 ---
@@ -366,7 +369,7 @@ purpose — this document measures only what the client changed. The fence and c
 | 1.5.10 | Settings that could not do anything removed, defaults tightened |
 | 1.5.11 | Bitrate moved from a slider to a 5 Mbps ladder |
 | 1.5.12 | Home menu title shows Moonlight-Switch-Turbo |
-| 1.5.13 | Title shortened to Moonlight-Turbo (current) |
+| 1.5.13 | Title shortened to Moonlight-Turbo; latency work complete (current) |
 
 ---
 
