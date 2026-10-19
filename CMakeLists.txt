@@ -70,7 +70,7 @@ endif ()
 
 set(VERSION_MAJOR "1")
 set(VERSION_MINOR "5")
-set(VERSION_ALTER "12")
+set(VERSION_ALTER "13")
 set(VERSION_BUILD "1")
 set(PACKAGE_NAME "ru.xitrix.Moonlight")
 set(PSN_TITLE_ID  "MNTL00000")
@@ -393,7 +393,7 @@ elseif (PLATFORM_SWITCH)
     # Title shown under the icon on the Switch home menu. Only this string
     # changes: the project, the artifact names and the SD card data directory
     # all keep the upstream "Moonlight" spelling they are referenced by.
-    set(SWITCH_NACP_NAME "Moonlight-Switch-Turbo")
+    set(SWITCH_NACP_NAME "Moonlight-Turbo")
     if (USE_DEKO3D)
         gen_dksh("${PROJECT_RESOURCES}/shaders")
     endif ()
