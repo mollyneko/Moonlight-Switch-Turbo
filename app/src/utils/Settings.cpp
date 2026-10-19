@@ -295,10 +295,6 @@ void Settings::load() {
                 }
             }
 
-            if (json_t* click_by_tap = json_object_get(settings, "click_by_tap")) {
-                m_click_by_tap = json_typeof(click_by_tap) == JSON_TRUE;
-            }
-            
             if (json_t* decoder_threads = json_object_get(settings, "decoder_threads")) {
                 if (json_typeof(decoder_threads) == JSON_INTEGER) {
                     m_decoder_threads = (int)json_integer_value(decoder_threads);
@@ -550,7 +546,6 @@ void Settings::save() {
             json_object_set_new(settings, "dithering_strength", json_integer(m_dithering_strength));
             json_object_set_new(settings, "enable_rcas", m_enable_rcas ? json_true() : json_false());
             json_object_set_new(settings, "rcas_strength", json_integer(m_rcas_strength));
-            json_object_set_new(settings, "click_by_tap", m_click_by_tap ? json_true() : json_false());
             json_object_set_new(settings, "use_hw_decoding", m_use_hw_decoding ? json_true() : json_false());
             json_object_set_new(settings, "sops", m_sops ? json_true() : json_false());
             json_object_set_new(settings, "play_audio", m_play_audio ? json_true() : json_false());

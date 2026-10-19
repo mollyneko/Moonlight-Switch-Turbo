@@ -232,9 +232,6 @@ class Settings : public Singleton<Settings> {
             m_rcas_strength = static_cast<int>(strength * 100.0f);
         }
 
-    [[nodiscard]] bool click_by_tap() const { return m_click_by_tap; }
-    void set_click_by_tap(bool click_by_tap) { m_click_by_tap = click_by_tap; }
-
     void set_decoder_threads(int decoder_threads) { m_decoder_threads = decoder_threads; }
     [[nodiscard]] int decoder_threads() const { return m_decoder_threads; }
 
@@ -351,14 +348,14 @@ class Settings : public Singleton<Settings> {
 #else
     AudioBackend m_audio_backend = SDL;
 #endif
-    int m_bitrate = 10000;
+    // 20 Mbps keeps 1080p60 H.265 clean; raise it if the link has headroom.
+    int m_bitrate = 20000;
     bool m_enable_hdr = false;
     UpscalingMode m_upscaling_mode = UPSCALING_OFF;
     bool m_enable_dithering = false;
     int m_dithering_strength = 3;
     bool m_enable_rcas = true;
     int m_rcas_strength = 20;
-    bool m_click_by_tap = false;
     int m_decoder_threads = 4;
     // Frames buffered between decoder and renderer. Every buffered frame is
     // added latency (1 frame = 16.7 ms at 60 FPS), so 1 is the lowest latency
@@ -367,9 +364,10 @@ class Settings : public Singleton<Settings> {
     bool m_sops = false;
     bool m_play_audio = false;
     bool m_write_log = false;
-    // Persists brls::Logger output to <working dir>/log.log. On by default so a
-    // slow or stuttering stream can always be diagnosed after the fact.
-    bool m_log_to_file = true;
+    // Persists brls::Logger output to <working dir>/log.log. Off by default so
+    // a normal session never touches the SD card; turn it on to diagnose a
+    // slow or stuttering stream after the fact.
+    bool m_log_to_file = false;
     bool m_swap_ui_keys = false;
     bool m_swap_joycon_stick_to_dpad = false;
     bool m_touchscreen_mouse_mode = false;

@@ -67,9 +67,8 @@ std::string getRcasStrengthText(float strength) {
 }
 
 #if defined(__SWITCH__)
-std::vector<std::string> audio_backends {
-    "Audren",
-};
+// The Switch build only links Audren, so there is no backend to pick.
+std::vector<std::string> audio_backends;
 #elif defined(__SDL2__) || defined(__SDL3__)
 std::vector<std::string> audio_backends {
 #if defined(__SDL3__)
@@ -89,7 +88,8 @@ SettingsTab::SettingsTab() {
 
     std::vector<std::string> resolutions = {
         "settings/resolution_native"_i18n, "360p", "480p", "540p", "720p", "1080p",
-#if !defined(__PSV__)
+#if !defined(__SWITCH__)
+        // The Switch outputs at most 1080p, so 1440p would only be downscaled.
         "1440p",
 #endif
     };
@@ -102,7 +102,7 @@ SettingsTab::SettingsTab() {
         GET_SETTINGS(resolution, 540, 3);
         GET_SETTINGS(resolution, 720, 4);
         GET_SETTINGS(resolution, 1080, 5);
-#if !defined(__PSV__)
+#if !defined(__SWITCH__)
         GET_SETTINGS(resolution, 1440, 6);
 #endif
         DEFAULT;
@@ -110,7 +110,8 @@ SettingsTab::SettingsTab() {
 
     std::vector<std::string> nativeResolutionScales = {
         "0.5x", "0.75x", "1.0x",
-#if !defined(__PSV__)
+#if !defined(__SWITCH__)
+        // 2x is already 1440p in handheld and 2160p docked.
         "2.0x",
 #endif
     };
@@ -120,7 +121,7 @@ SettingsTab::SettingsTab() {
         GET_SETTINGS(resolutionScale, 50, 0);
         GET_SETTINGS(resolutionScale, 75, 1);
         GET_SETTINGS(resolutionScale, 100, 2);
-#if !defined(__PSV__)
+#if !defined(__SWITCH__)
         GET_SETTINGS(resolutionScale, 200, 3);
 #endif
         default:
@@ -132,7 +133,7 @@ SettingsTab::SettingsTab() {
             SET_SETTING(0, set_native_resolution_scale(50));
             SET_SETTING(1, set_native_resolution_scale(75));
             SET_SETTING(2, set_native_resolution_scale(100));
-#if !defined(__PSV__)
+#if !defined(__SWITCH__)
             SET_SETTING(3, set_native_resolution_scale(200));
 #endif
             DEFAULT;
@@ -226,7 +227,7 @@ SettingsTab::SettingsTab() {
             SET_SETTING(3, set_resolution(540));
             SET_SETTING(4, set_resolution(720));
             SET_SETTING(5, set_resolution(1080));
-#if !defined(__PSV__)
+#if !defined(__SWITCH__)
             SET_SETTING(6, set_resolution(1440));
 #endif
             DEFAULT;
@@ -247,7 +248,10 @@ SettingsTab::SettingsTab() {
         "30",
         "40",
         "60",
+#if !defined(__SWITCH__)
+        // The Switch presents at 60 Hz, so a 120 FPS stream is never shown.
         "120",
+#endif
     };
 #endif
     fps->setText("settings/fps"_i18n);
@@ -263,7 +267,9 @@ SettingsTab::SettingsTab() {
         GET_SETTINGS(fps, 30, 0);
         GET_SETTINGS(fps, 40, 1);
         GET_SETTINGS(fps, 60, 2);
+#if !defined(__SWITCH__)
         GET_SETTINGS(fps, 120, 3);
+#endif
 #endif
         DEFAULT;
     }
@@ -279,7 +285,9 @@ SettingsTab::SettingsTab() {
             SET_SETTING(0, set_fps(30));
             SET_SETTING(1, set_fps(40));
             SET_SETTING(2, set_fps(60));
+#if !defined(__SWITCH__)
             SET_SETTING(3, set_fps(120));
+#endif
 #endif
             DEFAULT;
         }
@@ -352,7 +360,8 @@ SettingsTab::SettingsTab() {
 #if defined(__linux__) && defined(PLATFORM_DESKTOP)
     hwDecoding->setEnabled(true);
 #else
-    hwDecoding->setEnabled(false);
+    // Every other backend decodes in hardware unconditionally.
+    hwDecoding->removeFromSuperView(true);
 #endif
 
 #if defined(__PSV__)
@@ -378,8 +387,8 @@ SettingsTab::SettingsTab() {
     slider->setProgress(progress);
 
 #if defined(__SWITCH__)
-    audioBackend->init("settings/audio_backend"_i18n, audio_backends, 0,
-                       [](int) { Settings::instance().set_audio_backend(AUDREN); });
+    // Audren is the only audio backend the Switch build compiles in.
+    audioBackend->removeFromSuperView(true);
 #elif defined(__SDL2__) || defined(__SDL3__)
     audioBackend->init("settings/audio_backend"_i18n, audio_backends, Settings::instance().audio_backend(),
                        [](int selected) { Settings::instance().set_audio_backend((AudioBackend)selected); });
