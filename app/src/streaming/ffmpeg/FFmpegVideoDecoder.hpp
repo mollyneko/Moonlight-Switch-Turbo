@@ -55,6 +55,9 @@ class FFmpegVideoDecoder : public IFFmpegVideoDecoder {
     int m_frames_out = 0;
     int m_current_frame = 0, m_next_frame = 0;
     uint32_t m_last_frame = 0;
+#if defined(PLATFORM_SWITCH) && defined(BOREALIS_USE_DEKO3D)
+    int m_consecutive_decode_failures = 0;
+#endif
     AVCodecID m_codec_id = AV_CODEC_ID_NONE;
 
     bool m_hw_decode_active = false;

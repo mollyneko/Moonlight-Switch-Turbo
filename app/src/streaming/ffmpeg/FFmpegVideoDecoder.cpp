@@ -25,6 +25,12 @@ extern "C" {
 // Requests low latency decode behavior
 #define LOW_LATENCY_DECODE 0x2
 
+#if defined(PLATFORM_SWITCH) && defined(BOREALIS_USE_DEKO3D)
+// How many consecutive decode failures to tolerate, asking the host for a key
+// frame each time, before falling back to a full session restart.
+constexpr int kMaximumDecodeFailures = 5;
+#endif
+
 //#if defined(PLATFORM_TVOS)
 //#define DECODER_BUFFER_SIZE 92 * 1024 * 4
 //#else
@@ -118,6 +124,20 @@ int FFmpegVideoDecoder::configure_decoder_context(bool enable_hw_decode,
 #ifdef BOREALIS_USE_DEKO3D
     if (ffmpeg::decoder::configureDeko3DDecoderContext(m_decoder_context, enable_hw_decode) < 0) {
         return AVERROR(EINVAL);
+    }
+
+    if (enable_hw_decode) {
+        // Keep the NVTEGRA surface pool as deep as the frame queue is allowed
+        // to get. If it is shallower, a burst leaves the decoder without an
+        // output surface and FFmpeg drops those frames without reporting it.
+        m_decoder_context->extra_hw_frames = static_cast<int>(
+            AVFrameQueue::capacityFor(Settings::instance().frames_queue_size()));
+
+        // Report decoding errors instead of hiding them. The host runs an
+        // effectively infinite GOP, so a silently dropped frame stays wrong on
+        // screen until the next key frame, which a bitstream error is not going
+        // to produce. Handled in submit_decode_unit().
+        m_decoder_context->err_recognition = AV_EF_EXPLODE;
     }
 #else
     m_decoder_context->pix_fmt = AV_PIX_FMT_NV12;
@@ -778,6 +798,9 @@ int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
 
         const int decoded_frames = decode(m_ffmpeg_buffer, length);
         if (decoded_frames >= 0) {
+#if defined(PLATFORM_SWITCH) && defined(BOREALIS_USE_DEKO3D)
+            m_consecutive_decode_failures = 0;
+#endif
             if (decoded_frames == 0) {
                 return DR_OK;
             }
@@ -853,8 +876,22 @@ int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
 
         }
         else {
+#if defined(PLATFORM_SWITCH) && defined(BOREALIS_USE_DEKO3D)
+            // err_recognition is AV_EF_EXPLODE on this platform, so a bitstream
+            // error lands here instead of dropping the frame in silence. Ask
+            // for a key frame and keep the session; a decoder that keeps
+            // failing is not going to be saved by one, so restart instead.
+            if (++m_consecutive_decode_failures >= kMaximumDecodeFailures) {
+                m_consecutive_decode_failures = 0;
+                if (MoonlightSession::activeSession() != nullptr)
+                    MoonlightSession::activeSession()->restart();
+            } else {
+                return DR_NEED_IDR;
+            }
+#else
             if (MoonlightSession::activeSession() != nullptr)
                 MoonlightSession::activeSession()->restart();
+#endif
         }
     } else {
         brls::Logger::error("FFmpeg: Big buffer to decode... 2");

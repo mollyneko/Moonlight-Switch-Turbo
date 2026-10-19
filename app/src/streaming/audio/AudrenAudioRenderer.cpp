@@ -1,6 +1,7 @@
 #ifdef __SWITCH__
 
 #include "AudrenAudioRenderer.hpp"
+#include <Limelight.h>
 #include <Settings.hpp>
 #include <borealis.hpp>
 #include <algorithm>
@@ -14,6 +15,10 @@
 static const uint8_t m_sink_channels[] = {0, 1};
 
 namespace {
+
+// How many wave buffers (12.5 ms of audio each at 48 kHz) may sit in the audren
+// pool. Everything above that is lip-sync delay, not jitter cover.
+constexpr size_t kMaximumQueuedWaveBuffers = 2;
 
 void applyVolume(s16* buffer, size_t sampleCount, int volume) {
     for (size_t i = 0; i < sampleCount; i++) {
@@ -152,6 +157,14 @@ void AudrenAudioRenderer::cleanup() {
 void AudrenAudioRenderer::decode_and_play_sample(char* data, int length) {
     if (m_decoder && m_decoded_buffer) {
         if (data != NULL && length > 0) {
+            // Queuing more audio while we are already behind the host's timeline
+            // only adds lip-sync delay. Drop whole frames here rather than
+            // letting write_audio() block, which is what used to keep the pool
+            // permanently full and the audio permanently late.
+            if (LiGetPendingAudioDuration() > 30) {
+                return;
+            }
+
             int decoded_samples = opus_multistream_decode(
                 m_decoder, (const unsigned char*)data, length, m_decoded_buffer,
                 m_samples_per_frame, 0);
@@ -229,17 +242,6 @@ size_t AudrenAudioRenderer::append_audio(const void* buf, size_t size) {
     return size;
 }
 
-// Drop audren buffer every 400 samples to prevent audio delay
-bool AudrenAudioRenderer::flush() {
-    static int count = 0;
-    count++;
-    if (count == 400) {
-        count = 0;
-        return true;
-    }
-    return false;
-}
-
 void AudrenAudioRenderer::write_audio(const void* buf, size_t size) {
     if (!m_inited_driver) {
         brls::Logger::error("Audren: Call write_audio without init driver!");
@@ -251,8 +253,11 @@ void AudrenAudioRenderer::write_audio(const void* buf, size_t size) {
     size_t queued_samples = m_total_queued_samples -
         audrvVoiceGetPlayedSampleCount(&m_driver, 0);
 
-    // If we have over 0.5 desync, drop samples
-    if (queued_samples > m_sample_rate / 2)
+    // Bound the pool instead of blocking in it. The old 0.5 s threshold here
+    // was unreachable because the loop below sat on the pool until a wave
+    // buffer was free, so the queue stayed at its 62.5 ms maximum forever.
+    if (queued_samples >
+        kMaximumQueuedWaveBuffers * static_cast<size_t>(m_samples))
         return;
 
     size_t written = 0;
