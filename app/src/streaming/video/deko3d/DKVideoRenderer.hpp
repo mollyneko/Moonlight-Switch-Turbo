@@ -130,6 +130,9 @@ class DKVideoRenderer : public IVideoRenderer {
     bool m_upscaling_enabled = false;
   #ifdef SUPPORT_UPSCALING
     bool m_rcas_enabled = false;
+    // Set while the post-process chain of the previous frame is still in flight;
+    // see the wait at the top of draw().
+    bool m_postProcessFencePending = false;
     bool m_dithering_requested = false;
     bool m_upscaling_requested = false;
     bool m_rcas_requested = false;

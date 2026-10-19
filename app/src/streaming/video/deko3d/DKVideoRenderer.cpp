@@ -1095,6 +1095,19 @@ uint64_t timeCount = 0;
 
 void DKVideoRenderer::draw(NVGcontext* vg, int width, int height, AVFrame* frame,
                            int imageFormat) {
+#ifdef SUPPORT_UPSCALING
+    // The post-process chain submitted last frame reuses the same render targets
+    // and uniform buffers, and re-signals the same fence, so it has to be done
+    // before anything here is allowed to overwrite them. Waiting at the top of
+    // the draw instead of right after the submit keeps the CPU off the GPU's
+    // critical path: the input sampling, the overlay checks and the UI pass of
+    // the previous frame all run while the GPU finishes.
+    if (m_postProcessFencePending && vctx != nullptr) {
+        vctx->queueWaitFence(&upscalingFence);
+        m_postProcessFencePending = false;
+    }
+#endif
+
     checkAndInitialize(width, height, frame);
     if (!m_is_initialized) {
         return;
@@ -1115,8 +1128,6 @@ void DKVideoRenderer::draw(NVGcontext* vg, int width, int height, AVFrame* frame
             const auto postProcessStart = PostProcessClock::now();
             const auto upscalingStageStart = PostProcessClock::now();
             queue.submitCommands(cmdlist);
-            vctx->queueSignalFence(&upscalingFence);
-            vctx->queueWaitFence(&upscalingFence);
 
             if (m_upscaling_enabled) {
                 m_video_render_stats_progress.total_upscaling_time +=
@@ -1126,6 +1137,13 @@ void DKVideoRenderer::draw(NVGcontext* vg, int width, int height, AVFrame* frame
 
             const bool submittedPostProcess = submitUpscalingPresentPass();
             vctx->queueFlush();
+
+            // Signalled after the whole chain (decode, post-process, present) so
+            // that the wait at the top of the next draw covers every command that
+            // touched the shared targets. The fence is only ever re-signalled
+            // after that wait, so the signal cannot be lost.
+            vctx->queueSignalFence(&upscalingFence);
+            m_postProcessFencePending = true;
 
             if (submittedPostProcess) {
                 m_video_render_stats_progress.total_post_process_time +=

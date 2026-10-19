@@ -58,6 +58,12 @@ class MoonlightInputManager : public Singleton<MoonlightInputManager> {
     void updateTouchScreenPanDelta(brls::PanGestureStatus panStatus);
     void reloadButtonMappingLayout();
     void setInputEnabled(bool enabled) { inputEnabled = enabled; }
+    // Controller state as sampled by the last handleInput() call. The overlay
+    // and mouse-input combo checks read this instead of polling the pad again,
+    // which used to take the same unified snapshot four times per frame.
+    [[nodiscard]] const brls::ControllerState& rawControllerState() const {
+        return lastUnifiedControllerState;
+    }
     static void leftMouseClick();
     static void rightMouseClick();
 
@@ -70,6 +76,7 @@ class MoonlightInputManager : public Singleton<MoonlightInputManager> {
 
     RumbleValues rumbleCache[GAMEPADS_MAX];
     GamepadState lastGamepadStates[GAMEPADS_MAX];
+    brls::ControllerState lastUnifiedControllerState{};
     brls::ControllerButton mappingButtons[brls::_BUTTON_MAX];
     std::optional<brls::PanGestureStatus> panStatus;
     std::map<uint32_t, bool> activeTouchIDs;
@@ -82,7 +89,7 @@ class MoonlightInputManager : public Singleton<MoonlightInputManager> {
     bool inputDropped = false;
     bool inputEnabled = true;
 
-    brls::ControllerState mapController(brls::ControllerState controller);
+    brls::ControllerState mapController(const brls::ControllerState& controller);
     static short glfwKeyToVKKey(brls::BrlsKeyboardScancode key);
     void sendRelativeMouseMove(brls::Point offset);
     void handleDesktopMouseScroll(brls::Point scroll);

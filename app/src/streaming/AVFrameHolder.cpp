@@ -259,7 +259,7 @@ AVFrame* AVFrameQueue::pop(bool* consumed) {
 
     const size_t consumeCount = std::min(queue.size(), dueFrames);
 
-    recycleFrame(freeQueue, bufferFrame);
+    recyclePresentedFrameLocked(bufferFrame);
     bool havePresentedArrival = false;
     std::chrono::steady_clock::time_point presentedArrival{};
     for (size_t i = 0; i < consumeCount; i++) {
@@ -313,6 +313,21 @@ AVFrame* AVFrameQueue::acquireWriteFrame() {
 void AVFrameQueue::recycleWriteFrame(AVFrame*& frame) {
     std::lock_guard<std::mutex> lock(m_mutex);
     recycleFrame(freeQueue, frame);
+}
+
+void AVFrameQueue::recyclePresentedFrameLocked(AVFrame*& frame) {
+    if (!frame) {
+        return;
+    }
+
+    pendingRecycle.push(frame);
+    frame = nullptr;
+
+    while (pendingRecycle.size() > kPresentedRecycleDelay) {
+        AVFrame* released = pendingRecycle.front();
+        pendingRecycle.pop();
+        recycleFrame(freeQueue, released);
+    }
 }
 
 void AVFrameQueue::configure(size_t queueLimit, int configuredStreamFps,
@@ -621,7 +636,9 @@ void AVFrameQueue::cleanup() {
 
     freeFrameQueue(queue);
     freeFrameQueue(freeQueue);
+    freeFrameQueue(pendingRecycle);
     queue = {};
     arrivalTimes = {};
     freeQueue = {};
+    pendingRecycle = {};
 }

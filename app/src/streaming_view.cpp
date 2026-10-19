@@ -550,11 +550,12 @@ void StreamingView::handleOverlayCombo() {
     if (!this->focused)
         return;
 
-    KeyComboOptions options = Settings::instance().overlay_options();
+    const KeyComboOptions& options = Settings::instance().overlay_options();
 
-    static ControllerState controller;
-    Application::getPlatform()->getInputManager()->updateUnifiedControllerState(
-        &controller);
+    // Reuse the snapshot handleInput() took earlier this frame instead of
+    // polling the pad again; see MoonlightInputManager::rawControllerState().
+    const ControllerState& controller =
+        MoonlightInputManager::instance().rawControllerState();
 
     static std::chrono::high_resolution_clock::time_point clock_counter;
     static bool buttonState = false;
@@ -604,13 +605,12 @@ void StreamingView::handleMouseInputCombo() {
     if (!this->focused)
         return;
 
-    KeyComboOptions options = Settings::instance().mouse_input_options();
+    const KeyComboOptions& options = Settings::instance().mouse_input_options();
     if (options.buttons.empty())
         return;
 
-    static ControllerState controller;
-    Application::getPlatform()->getInputManager()->updateUnifiedControllerState(
-        &controller);
+    const ControllerState& controller =
+        MoonlightInputManager::instance().rawControllerState();
 
     static std::chrono::high_resolution_clock::time_point clock_counter;
     static bool buttonState = false;

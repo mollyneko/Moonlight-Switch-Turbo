@@ -27,14 +27,6 @@ float applyStickScrollDeadzone(float axis, float configuredDeadzone) {
 }
 }
 
-float fsqrt_(float f) {
-    int i = *(int *)&f;
-    i = (i >> 1) + 0x1fbb67ae;
-    float f1 = *(float *)&i;
-    return 0.5F * (f1 + f / f1);
-
-}
-
 MoonlightInputManager::MoonlightInputManager() {
     auto inputManager = brls::Application::getPlatform()->getInputManager();
 
@@ -321,16 +313,18 @@ GamepadState MoonlightInputManager::getControllerState(int controllerNum,
     float rightYAxis = controller.axes[brls::RIGHT_Y];
 
     if (leftStickDeadzone > 0) {
-        float magnitude = fsqrt_(leftXAxis * leftXAxis + leftYAxis * leftYAxis);
-        if (magnitude < leftStickDeadzone) {
+        // Squared compare: exact, and it replaces the approximation the same
+        // threshold test used to run through fsqrt_.
+        if (leftXAxis * leftXAxis + leftYAxis * leftYAxis <
+            leftStickDeadzone * leftStickDeadzone) {
             leftXAxis = 0;
             leftYAxis = 0;
         }
     }
 
     if (rightStickDeadzone > 0) {
-        float magnitude = fsqrt_(rightXAxis * rightXAxis + rightYAxis * rightYAxis);
-        if (magnitude < rightStickDeadzone) {
+        if (rightXAxis * rightXAxis + rightYAxis * rightYAxis <
+            rightStickDeadzone * rightStickDeadzone) {
             rightXAxis = 0;
             rightYAxis = 0;
         }
@@ -388,7 +382,7 @@ GamepadState MoonlightInputManager::getControllerState(int controllerNum,
     SET_GAME_PAD_STATE(LS_CLK_FLAG, brls::BUTTON_LSB);
     SET_GAME_PAD_STATE(RS_CLK_FLAG, brls::BUTTON_RSB);
 
-    auto guideKeys = Settings::instance().guide_key_options().buttons;
+    const auto& guideKeys = Settings::instance().guide_key_options().buttons;
     bool guideCombo = !guideKeys.empty();
     for (auto key : guideKeys)
         guideCombo &= controller.buttons[key];
@@ -445,18 +439,18 @@ void MoonlightInputManager::handleControllers(bool specialKey) {
 
 void MoonlightInputManager::handleInput(bool ignoreTouch) {
     inputDropped = false;
-    static brls::ControllerState rawController;
-    static brls::ControllerState controller;
     static brls::RawMouseState mouse;
 
     brls::Application::getPlatform()
             ->getInputManager()
-            ->updateUnifiedControllerState(&rawController);
+            ->updateUnifiedControllerState(&lastUnifiedControllerState);
     brls::Application::getPlatform()->getInputManager()->updateMouseStates(
             &mouse);
-    controller = mapController(rawController);
+    brls::ControllerState controller = mapController(lastUnifiedControllerState);
 
-    std::vector<brls::RawTouchState> states;
+    // ponytail: function-local reuse; handleInput() only runs on the draw thread.
+    static std::vector<brls::RawTouchState> states;
+    states.clear();
     brls::Application::getPlatform()->getInputManager()->updateTouchStates(&states);
 
     //Do not use gamepad for mouse controll assist if touchscreen mode enabled
@@ -615,7 +609,7 @@ short MoonlightInputManager::controllersToMap() {
 }
 
 brls::ControllerState
-MoonlightInputManager::mapController(brls::ControllerState controller) {
+MoonlightInputManager::mapController(const brls::ControllerState& controller) {
     brls::ControllerState result{};
 
     std::fill(result.buttons, result.buttons + sizeof(result.buttons), false);

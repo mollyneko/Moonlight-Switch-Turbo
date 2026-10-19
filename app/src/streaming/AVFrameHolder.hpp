@@ -65,6 +65,14 @@ private:
     void updateAdaptiveTargetLocked(std::chrono::steady_clock::time_point now,
                                     bool underrun);
     void trimToPlayoutWindowLocked();
+    // The frame handed to the renderer does not go back into the free pool right
+    // away. On the zero-copy path that frame is the NVTegra buffer the GPU is
+    // sampling, and the plain submit path has no fence telling us when it is
+    // done with it; the delayed release puts a few draws between presenting a
+    // buffer and letting the decoder write into it again.
+    void recyclePresentedFrameLocked(AVFrame*& frame);
+    static constexpr size_t kPresentedRecycleDelay = 2;
+    std::queue<AVFrame*> pendingRecycle;
     size_t limit = 0;
     std::queue<AVFrame*> queue;
     // Arrival stamp per queued frame, kept in lockstep with `queue` on every
@@ -123,7 +131,11 @@ class AVFrameHolder : public Singleton<AVFrameHolder> {
         m_frame_queue.pushTransferred(frame);
     }
 
-    void get(const std::function<void(AVFrame*)>& fn) {
+    // Deliberately a template rather than std::function: the renderer's lambda
+    // captures more than libstdc++ keeps in its small object buffer, so every
+    // drawn frame paid a heap allocation for the call.
+    template <typename Fn>
+    void get(Fn&& fn) {
         auto frame = m_frame_queue.pop();
 
         if (frame) {

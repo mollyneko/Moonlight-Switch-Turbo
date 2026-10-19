@@ -269,13 +269,15 @@ class Settings : public Singleton<Settings> {
     [[nodiscard]] bool swap_mouse_scroll() const { return m_swap_mouse_scroll; }
 
     void set_guide_key_options(KeyComboOptions options) { m_guide_key_options = std::move(options); }
-    [[nodiscard]] KeyComboOptions guide_key_options() const { return m_guide_key_options; }
+    // By reference: the combo checks read these every drawn frame and copying
+    // the button vector for that was pure overhead.
+    [[nodiscard]] const KeyComboOptions& guide_key_options() const { return m_guide_key_options; }
 
     void set_overlay_options(KeyComboOptions options) { m_overlay_options = std::move(options); }
-    [[nodiscard]] KeyComboOptions overlay_options() const { return m_overlay_options; }
+    [[nodiscard]] const KeyComboOptions& overlay_options() const { return m_overlay_options; }
 
     void set_mouse_input_options(KeyComboOptions options) { m_mouse_input_options = std::move(options); }
-    [[nodiscard]] KeyComboOptions mouse_input_options() const { return m_mouse_input_options; }
+    [[nodiscard]] const KeyComboOptions& mouse_input_options() const { return m_mouse_input_options; }
 
     void set_volume_amplification(bool allow) { m_volume_amplification = allow; }
     [[nodiscard]] bool get_volume_amplification() const { return m_volume_amplification; }
