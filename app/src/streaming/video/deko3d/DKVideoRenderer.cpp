@@ -692,6 +692,16 @@ bool DKVideoRenderer::submitUpscalingPresentPass() {
     dk::ColorState colorState;
     dk::ColorWriteState colorWriteState;
     int finalTextureId = upscalingTextureId;
+    const bool runsRcas = m_rcas_enabled && rcasTextureId >= 0 &&
+                          rcasTargetHandle && rcasFragmentShader &&
+                          rcasUniformBuffer;
+    // Dithering is the only thing the last pass does when it is enabled, and
+    // its shader is a plain texture() fetch otherwise - so with dithering off
+    // that pass is a copy of the RCAS output into the framebuffer, a screen
+    // worth of reads and writes per frame for no visible change. Nothing else
+    // samples the RCAS output, so RCAS can target the framebuffer itself and
+    // the copy is dropped.
+    const bool rcasWritesFramebuffer = runsRcas && !m_dithering_enabled;
 
     presentCmdbuf.bindRasterizerState(rasterizerState);
     presentCmdbuf.bindDepthStencilState(
@@ -705,10 +715,10 @@ bool DKVideoRenderer::submitUpscalingPresentPass() {
     presentCmdbuf.bindVtxAttribState(VertexAttribState);
     presentCmdbuf.bindVtxBufferState(VertexBufferState);
 
-    if (m_rcas_enabled && rcasTextureId >= 0 && rcasTargetHandle &&
-        rcasFragmentShader && rcasUniformBuffer) {
+    if (runsRcas) {
         const auto sharpeningStageStart = PostProcessClock::now();
-        dk::ImageView rcasTarget{rcasTargetImage};
+        dk::ImageView rcasTarget{rcasWritesFramebuffer ? *framebuffer
+                                                         : rcasTargetImage};
 
         presentCmdbuf.bindRenderTargets(&rcasTarget);
         presentCmdbuf.setViewports(
@@ -731,6 +741,11 @@ bool DKVideoRenderer::submitUpscalingPresentPass() {
         m_video_render_stats_progress.total_sharpening_time +=
             toMicroseconds(PostProcessClock::now() - sharpeningStageStart);
         m_video_render_stats_progress.sharpened_frames++;
+    }
+
+    if (rcasWritesFramebuffer) {
+        queue.submitCommands(presentCmdMemRing.end(presentCmdbuf));
+        return true;
     }
 
     const auto ditheringStageStart = PostProcessClock::now();
