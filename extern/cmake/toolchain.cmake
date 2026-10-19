@@ -687,28 +687,40 @@ endfunction()
 
 # switch platform
 # glsl -> deko3d dksh
+# NOTE: On this Windows toolchain `uam` (the deko3d shader compiler) is not
+# available as a native Windows binary. The repository already ships the
+# pre-compiled .dksh shader binaries in resources/shaders/, which are exactly
+# the outputs this function would otherwise produce, so we copy them instead.
+# The original uam path is kept as a fallback when no prebuilt shaders exist.
 function(gen_dksh romfs_dir)
-    find_program(NX_UAM_EXE NAMES uam HINTS "${DEVKITPRO}/tools/bin")
-    if (NOT NX_UAM_EXE)
-        message(FATAL_ERROR "Could not find uam: try installing uam")
-    endif()
-    if (NOT DEFINED BOREALIS_LIBRARY)
-        message(FATAL_ERROR BOREALIS_LIBRARY is not defined)
-    endif ()
-
-    set(NANOVG_SHADER_BASE "${BOREALIS_LIBRARY}/lib/extern/nanovg/deko3d/shaders")
-
+    set(SHADER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/shaders")
     file(MAKE_DIRECTORY "${romfs_dir}")
-    execute_process(COMMAND ${NX_UAM_EXE} -s vert -o "${romfs_dir}/fill_vsh.dksh" "${NANOVG_SHADER_BASE}/fill_vsh.glsl" TIMEOUT 5)
-    execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/fill_aa_fsh.dksh" "${NANOVG_SHADER_BASE}/fill_aa_fsh.glsl" TIMEOUT 5)
-    execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/fill_fsh.dksh" "${NANOVG_SHADER_BASE}/fill_fsh.glsl" TIMEOUT 5)
+    file(GLOB PREBUILT_DKSH "${SHADER_SRC_DIR}/*.dksh")
+    if (PREBUILT_DKSH)
+        file(COPY ${PREBUILT_DKSH} DESTINATION "${romfs_dir}")
+        message(STATUS "gen_dksh: copied prebuilt ${SHADER_SRC_DIR}/*.dksh -> ${romfs_dir}")
+    else ()
+        find_program(NX_UAM_EXE NAMES uam HINTS "${DEVKITPRO}/tools/bin")
+        if (NOT NX_UAM_EXE)
+            message(FATAL_ERROR "Could not find uam and no prebuilt .dksh shaders present")
+        endif()
+        if (NOT DEFINED BOREALIS_LIBRARY)
+            message(FATAL_ERROR BOREALIS_LIBRARY is not defined)
+        endif ()
 
-    execute_process(COMMAND ${NX_UAM_EXE} -s vert -o "${romfs_dir}/basic_vsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/basic_vsh.glsl" TIMEOUT 5)
-    execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/color_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/color_fsh.glsl" TIMEOUT 5)
-    execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/texture_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/texture_fsh.glsl" TIMEOUT 5)
-    if (ENABLE_UPSCALING)
-        execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/upscaling_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/upscaling_fsh.glsl" TIMEOUT 5)
-        execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/rcas_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/rcas_fsh.glsl" TIMEOUT 5)
-        execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/upscaling_pass_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/upscaling_pass_fsh.glsl" TIMEOUT 5)
+        set(NANOVG_SHADER_BASE "${BOREALIS_LIBRARY}/lib/extern/nanovg/deko3d/shaders")
+
+        execute_process(COMMAND ${NX_UAM_EXE} -s vert -o "${romfs_dir}/fill_vsh.dksh" "${NANOVG_SHADER_BASE}/fill_vsh.glsl" TIMEOUT 5)
+        execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/fill_aa_fsh.dksh" "${NANOVG_SHADER_BASE}/fill_aa_fsh.glsl" TIMEOUT 5)
+        execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/fill_fsh.dksh" "${NANOVG_SHADER_BASE}/fill_fsh.glsl" TIMEOUT 5)
+
+        execute_process(COMMAND ${NX_UAM_EXE} -s vert -o "${romfs_dir}/basic_vsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/basic_vsh.glsl" TIMEOUT 5)
+        execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/color_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/color_fsh.glsl" TIMEOUT 5)
+        execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/texture_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/texture_fsh.glsl" TIMEOUT 5)
+        if (ENABLE_UPSCALING)
+            execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/upscaling_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/upscaling_fsh.glsl" TIMEOUT 5)
+            execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/rcas_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/rcas_fsh.glsl" TIMEOUT 5)
+            execute_process(COMMAND ${NX_UAM_EXE} -s frag -o "${romfs_dir}/upscaling_pass_fsh.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/app/src/streaming/video/deko3d/upscaling_pass_fsh.glsl" TIMEOUT 5)
+        endif ()
     endif ()
 endfunction()
