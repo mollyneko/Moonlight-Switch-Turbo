@@ -1,303 +1,226 @@
-# Moonlight-Switch
+# Moonlight-Switch-Turbo
 
-Moonlight-Switch is a port of [Moonlight Game Streaming Project](https://github.com/moonlight-stream "Moonlight Game Streaming Project") for Nintendo Switch.
+**English** | [简体中文](README.zh-CN.md)
 
-## Screenshots
-<details>
-  <summary>Preview</summary>
-  <p float="left">
-  <img width="500" src="https://user-images.githubusercontent.com/9553519/135712658-20382345-2da5-4968-9f57-f9f4470ae819.jpg" />
-  <img width="500" src="https://user-images.githubusercontent.com/9553519/135712664-bf2481b2-2791-490d-99a9-2f968682db76.jpg" />
-  <img width="500" src="https://user-images.githubusercontent.com/9553519/135712669-fd8b2495-e1ea-4357-949f-7fa7312da46f.jpg" />
-  <img width="500" src="https://user-images.githubusercontent.com/9553519/135712672-b9ac3785-bd1c-4948-82b2-9b353019feba.jpg" />
-  <img width="500" src="https://user-images.githubusercontent.com/9553519/135712676-aaa85bb7-9517-4a6d-bc35-070df092383c.jpg" />
-  </p>
-</details>
+A Nintendo Switch client for [Moonlight](https://github.com/moonlight-stream) game streaming, forked from
+[XITRIX/Moonlight-Switch](https://github.com/XITRIX/Moonlight-Switch).
 
-# Installing
-### Switch
-1. Download latest Moonlight-Switch [release](https://github.com/XITRIX/Moonlight-Switch/releases).
-2. Put Moonlight.nro to sdcard:/switch/Moonlight-Switch;
-3. Launch hbmenu over *Title Redirection* (for FULL RAM access);
-4. Launch moonlight.
+This branch keeps a single target — the Switch — and spends its 1.5.x line removing frames of latency from the
+client path: input leaves before the frame is rendered, the gamepad is sampled twice per frame, the video queue
+adapts down to zero frames of reserve, and the audio pool is capped at 25 ms.
 
-Or download it from [HB App Store](https://apps.fortheusers.org/switch/Moonlight-Switch)
+---
+
+## Latency: 1.5.0 → 1.5.11
+
+1.5.11 is the version where the latency work landed in full. Everything below is derived from the code, at
+**60 fps (one frame = 16.67 ms)**, and covers only the latency the client adds on top of the host.
+
+### Client-side budget
+
+| Stage | 1.5.0 | 1.5.11 | Change |
+|:---|---:|---:|---:|
+| Input sampling wait — mean | 0.50 frame · 8.3 ms | 0.25 frame · **4.2 ms** | −4.2 ms |
+| Input sampling wait — worst case | 1.00 frame · 16.7 ms | 0.50 frame · **8.3 ms** | −8.3 ms |
+| Input send offset | after the render pass | before the render pass | − one draw pass |
+| Video queue residency — steady | 1.00 frame · 16.7 ms | 0.00 frame · **0 ms** | −16.7 ms |
+| Video queue residency — degraded | 1.00 frame · 16.7 ms | 1.00 frame · 16.7 ms | 0 (by design) |
+| **Client-side added latency** | **1.50 frames · 25.0 ms** | **0.25 frames · 4.2 ms** | **−1.25 frames · −20.8 ms (−83%)** |
+| Audio pool depth (worst case) | 5 × 12.5 ms · 62.5 ms | 2 × 12.5 ms · **25.0 ms** | −37.5 ms |
+
+The last row is a separate path — it bounds lip-sync, not the frame path, so it is not part of the 25.0 → 4.2 ms
+total.
+
+### Where a frame goes
+
+```
+1.5.0    one frame (16.7 ms)
+         +---------------------------+---------------------------+
+         |  render + submit frame    |  sample input -> send     |
+         +---------------------------+---------------------------+
+                                     ^ a press landing here waits a full frame
+
+1.5.11   one frame (16.7 ms)
+         +-------------+-----------------------------------+-------------+
+         | sample+send |        render + submit frame      | sample+send |
+         +-------------+-----------------------------------+-------------+
+         ^                                                 ^
+         gap between samples is now half a frame, not a whole one
+```
+
+### Queue depth sensitivity
+
+`D_target = min(configured depth − 1, 2)` in 1.5.0; 1.5.11 starts there and walks one frame down once the link
+proves it can keep up.
+
+| Frame queue setting | 1.5.0 target | 1.5.11 target (steady) | 1.5.0 total | 1.5.11 total |
+|:---|---:|---:|---:|---:|
+| 1 | 0 | 0 | 8.3 ms | **4.2 ms** |
+| 2 (default) | 1 | 0 | 25.0 ms | **4.2 ms** |
+| 3 | 2 | 1 | 41.7 ms | **20.9 ms** |
+
+The gap widens with the setting: the deeper the configured queue, the more the fixed reserve costs in 1.5.0.
+
+### Frame rate scaling
+
+Both terms scale linearly with the frame period, so the gain doubles at 30 fps and halves at 120 fps.
+
+| Refresh rate | Frame period | 1.5.0 | 1.5.11 | Change |
+|:---|---:|---:|---:|---:|
+| 30 fps | 33.3 ms | 50.0 ms | **8.3 ms** | −41.7 ms |
+| 60 fps | 16.7 ms | 25.0 ms | **4.2 ms** | −20.8 ms |
+
+The Switch outputs 60 Hz in both handheld and docked mode, which is what the client advertises to the host
+(`clientRefreshRateX100 = 6000`).
+
+### Audio path
+
+| | 1.5.0 | 1.5.11 |
+|:---|:---|:---|
+| Wave buffer | 12.5 ms (600 samples @ 48 kHz) | 12.5 ms |
+| Maximum pooled buffers | 5 | 2 |
+| Worst-case buffered audio | 62.5 ms | **25.0 ms** |
+| Backpressure | `write_audio()` blocks, pool stays full for the whole session | drop whole frames once pending audio exceeds 30 ms |
+| Periodic correction | drop one buffer every 400 samples | removed — the cap makes it unnecessary |
+
+### Pacing behaviour
+
+The queue has to be able to *converge* on its target, not just be configured for it.
+
+| | 1.5.0 | 1.5.11 |
+|:---|:---|:---|
+| Occupancy gain | 0.01 per frame | **0.06 per frame** |
+| Maximum correction | 0.08 frames (both directions) | **0.40** draining, 0.08 holding |
+| Max drain rate @ 60 fps | 0.08 frame/draw ≈ 4.8 frames/s | **0.40 frame/draw ≈ 24 frames/s** |
+| Catch-up bound | `min(credit, queue limit)` — a noisy cadence estimate could discard 5–13 frames in one burst | `min(credit, backlog + 1)` — zero backlog at target means no catch-up |
+| Reserve handback | never | one frame after 5 s without an underrun; an underrun restores it and doubles the next window |
+
+The asymmetric cap is deliberate: draining too much drops frames that are already late, while holding a frame
+to rebuild reserve shows the same image twice, which is judder that buys nothing.
+
+### How the numbers are derived
+
+```
+T_frame   = 1000 / refresh rate                  -> 16.67 ms at 60 Hz
+T_sample  = T_frame / samples per frame / 2      -> mean wait for a button press
+T_queue   = target buffered frames x T_frame     -> frames held before display
+L_client  = T_sample + T_queue
+```
+
+```
+1.5.0    16.67 / 1 / 2 + 1 x 16.67 =  8.33 + 16.67 = 25.0 ms
+1.5.11   16.67 / 2 / 2 + 0 x 16.67 =  4.17 +  0.00 =  4.2 ms
+```
+
+1.5.11 takes its second sample as the last thing the draw callback does, right before the frame is presented;
+keyboard diffing and the bottom-bar timer stay on the single frame-start call.
+
+**Not counted:** network RTT, host capture and encode, Switch-side FFmpeg decode, display scanout, and audio
+hardware latency. These are identical between the two versions and are deliberately excluded — this table
+measures only what the client changed.
+
+> [!NOTE]
+> These are theoretical values derived from code parameters, not lab measurements. Real latency also depends
+> on link jitter and the host encoder.
+>
+> As a reference point, one measured session at 4 ms RTT showed ~68 ms end-to-end, of which ~60 ms was queue
+> backlog — precisely the part 1.5.11 attacks. That measurement predates the pacing fix, so it is an upper
+> bound rather than a description of the current build.
+
+---
+
+## Version history
+
+| Version | Change |
+|:---|:---|
+| 1.5.0 | Branch baseline |
+| 1.5.1 | Video frame queue depth made configurable (default 2) |
+| 1.5.2 | Input sent before the frame is rendered |
+| 1.5.3 | Gamepad sampled twice per frame |
+| 1.5.4 | Adaptive frame queue depth, real client refresh rate |
+| 1.5.5 | Streaming session cleaned up on exit, rebuilt after a suspend |
+| 1.5.6 | SD-card logging no longer stalls the stream; catch-up discard bounded |
+| 1.5.7 | Per-frame allocations removed; GPU sync moved off the critical path |
+| 1.5.8 | Redundant copy pass skipped when RCAS is the last post-processing stage |
+| 1.5.9 | Audio queue made shallow; decode errors no longer swallowed |
+| 1.5.10 | Settings that could not do anything removed, defaults tightened |
+| 1.5.11 | Bitrate moved from a slider to a 5 Mbps ladder |
+| 1.5.12 | Home menu title shows Moonlight-Switch-Turbo |
+| 1.5.13 | Title shortened to Moonlight-Turbo (current) |
+
+---
+
+## Install
+
+1. Download the latest `Moonlight-Switch-Turbo-*.zip` from [Releases](https://github.com/mollyneko/Moonlight-Switch-Turbo/releases)
+2. Extract `Moonlight-Switch.nro` to `sdcard:/switch/Moonlight-Switch/`
+3. Launch hbmenu through **Title Redirection** (needs full RAM access)
+4. Start Moonlight-Turbo
+
+> [!IMPORTANT]
+> The home menu title is `Moonlight-Turbo`, but the data directory stays `switch/Moonlight-Switch/`. Your
+> settings and favourites live there and are unaffected by the rename.
 
 > [!TIP]
-> To be able to use high bitrate setting especially with 1080p - resolution, you need to overclock CPU/GPU of your console.
->
-> To learn more about that you can take a look at [Sys-Clk homebrew](https://github.com/retronx-team/sys-clk) or entire [Atmosphere build - 4IFIR](https://github.com/rashevskyv/4IFIR/blob/main/README_ENG.md) which includes everything you need to overclock your console
+> 1080p at high bitrate needs a CPU/GPU overclock — [sys-clk](https://github.com/retronx-team/sys-clk) or
+> [4IFIR](https://github.com/rashevskyv/4IFIR/blob/main/README_ENG.md). Overclocking carries risk; that is on you.
 
-> [!WARNING]
-> I DO NOT RESPOSIBLE FOR ANY DAMAGE TO YOUR CONSOLE IF SOMETHING WILL GO WRONG!
->
-> I am using 4IFIR by myself and not find any issue, but everything is possible. So think by you own head and be responsible for what you do with your devices!
-
-### iOS, tvOS and macOS
-Accept [invite for TestFlight](https://testflight.apple.com/join/P9EX5vQ5) and download app from there
-
-## Discord
-Feel free to join [Moonlight discord server](https://discord.gg/fmtcVPzaG4), you will find me there in "switch-help" channel 
+---
 
 ## Controls
-### Mouse
-With touch screen you can move your coursor, tap to left click, scroll 2 fingers to scroll.
 
-While touching screen ZR and ZL buttons will work like left and right mouse buttons.
+**Mouse** — move the cursor with the touch screen, tap to left-click, scroll with two fingers. While touching,
+ZL/ZR act as left/right buttons and the L/R sticks act as a scroll wheel. USB mice work too.
 
-Also while touching screen L and R sticks will work like scrolling wheel.
+**Keyboard** — tap the screen with three fingers for the on-screen keyboard; USB keyboards work directly.
 
-USB mouse working as well.
+**Gamepad** — mapped as an X360 pad by default (A/B and X/Y swapped), remappable in settings. Up to 5
+controllers including handheld mode, and single Joy-Cons are supported.
 
-### Keyboard
-You can use onscreen keyboard, tap 3 fingers on screen to show it.
+**SixAxis** — configure Sunshine to recognise the controller as a DS4 to get gyro and accelerometer. Player 1 only.
 
-USB keyboard working as well.
+**In-game overlay** — press `-` and `+` together by default, or hold `ESC` on a keyboard. Both the combo and
+the hold time are configurable.
 
-### Gamepad
-By default, Switch gamepad configured as X360 gamepad (A/B and X/Y swapped). Key mapping available in application settings.
+**NSP forwarder** — start a stream directly with predefined arguments. Add the target app to Favourites first,
+then generate one with the [NSP Forwarder Generator](https://nsp-forwarder.vercel.app/moonlight). Manually you
+pass `--ip` / `--appid` / `--appname`, e.g. `--ip=192.168.1.101 --appid=1233211234 --appname=Steam`.
 
-Up to 5 gamepads (includes handheld mode) supported. Half of joycons are also supported.
+---
 
-### SixAxis
-You should configure your Sunshine server to recognise controller as DS4 one to be able to use Gyro and Accelerometer. Only works for player 1 controller.
+## Building
 
-### Ingame overlay
-To open overlay, press - and + key simultaneously by default or Hold ESC on keyboard.
-
-Key combination and holding time are configurable in settings.
-
-## NSP forwarder
-App supports NSP forwarders to start stream immediately with predefined configuration. Add app you want to launch in Favorites list first. You can generate forwarder using [NSP Forwarder Generator](https://nsp-forwarder.vercel.app/moonlight)
-
-### Manually
-If you'd like to create it manually, without help of generator, you'll need to create forwarder which will pass thees arguments to the application:
-- `--ip` - IP address of your PC
-- `--appid` - ID of the app to launch, it has to be added into "Favorites list" (you could find it in /switch/Moonlight-Switch/settings.json)
-- `--appname` - The name of the app without any spacings
-
-example:
-`--ip=192.168.1.101 --appid=1233211234 --appname=Steam`
-
-## iOS / visionOS forwarder / deep link
-iOS and visionOS builds register the `moonlightswitch://` URL scheme. The supported deep link
-uses the same parameters as the Switch forwarder:
-
-`moonlightswitch://launch?ip=192.168.1.101&appid=1233211234&appname=Steam`
-
-`host` can be used instead of `ip` when launching by host MAC address.
-
-iOS 16+ and visionOS builds also expose Shortcuts actions. `Launch Game` accepts a Moonlight
-`Game` value. Use `Get Favorite Games` to pick from saved favorites, or
-`Create Game` to build a game manually from `Host`, `App ID`, and `App Name`,
-then pass the result to `Launch Game`. Use `Get Game Detail` to extract a
-selected game's `App ID`, `Host`, `App Name`, or `Display Host`, and `Get Game
-Deep Link` to create a `moonlightswitch://` URL from a `Game`. Favorite game rows
-use cached box art when available. `Host` accepts either a paired PC IP address
-or MAC address.
-
-Favorite apps can generate an Apple Shortcut forwarder. The forwarder action opens
-the Shortcuts editor and copies the generated deep link to the clipboard as a
-fallback. Prefer the Moonlight `Launch Game` action on iOS 16+ or visionOS, or
-add an `Open URLs` action and paste the copied `moonlightswitch://` URL on older
-iOS versions. Use Shortcuts' `Add to Home Screen` option to create the icon.
-
-## Localization
-- English (100%)
-- Russian (100%)
-- German (86%)
-- Spanish (72%)
-- Japanese (70%)
-- Chinese (simplified) (86%)
-- Czech (70%) - unsupported yet, as HOS has no such system language
-
-### Contribution
-If you'd like to improve existing language, or add a new one, follow the instruction:
-1. Ask a permission to modify language [here](https://poeditor.com/join/project?hash=9kiCIvN0dc)
-2. Notify me by [creating an issue](https://github.com/XITRIX/Moonlight-Switch/issues/new) with title "[Localization] - {Name of language}", in description write your nickname on POEditor
-3. After translation is done, notify me in issue created earlier
-
-You have 2 options to add that translation:
-1. If you'd like your profile in "contributors" section, you could add that localization by creating a PR
-2. If you don't care, I could do that by myself
-
-If you'd like to test your translation, you could follow build instructions, or ask me to create a build with your localization, I'll attach that build in issue.
-
-> [!WARNING]
-> Currently there is no way to select language inside of app, it takes from system settings, so it is impossible to add locatization, that HOS doesn't support (that happend with Czech language).
-
-## Build Moonlight-Switch
+Requires devkitPro's devkitA64, libnx and the Switch portlibs, plus CMake 3.13+ and Ninja.
 
 ```bash
-cd 'folder/to/store/the/sources'
-
-# Clone this repo with submodules
-git clone https://github.com/XITRIX/Moonlight-Switch.git --recursive
-cd Moonlight-Switch
+git clone --recursive https://github.com/mollyneko/Moonlight-Switch-Turbo
+cd Moonlight-Switch-Turbo
+cmake -B build/switch -DCMAKE_BUILD_TYPE=Release -DPLATFORM_SWITCH=ON -DUSE_DEKO3D=ON -G Ninja
+ninja -C build/switch Moonlight.nro
 ```
 
-### Switch
+The artifact lands at `build/switch/Moonlight.nro`. `-DUSE_DEKO3D=ON` selects the deko3d backend, which is a
+prerequisite for the low-latency path.
 
-To build for Switch, a standard development environment must first be set up. In order to do so, [refer to the Getting Started guide](https://devkitpro.org/wiki/Getting_Started).
+If `uam` (the deko3d shader compiler) is unavailable, the build copies the pre-compiled `.dksh` files from
+`resources/shaders/` instead of failing at configure time.
 
-```bash
-cmake -B build/switch -DPLATFORM_SWITCH=ON
-make -C build/switch Moonlight.nro -j$(nproc)
-```
+---
 
-### PS Vita
+## Known limitations
 
-To build for PS Vita, install [VitaSDK](https://vitasdk.org/) and the Vita dependencies described in the [Borealis PS Vita guide](https://github.com/xfangfang/borealis/wiki/PS-Vita). The SDK must include FFmpeg and SDL2 built with `VIDEO_VITA_PVR` support. Set `VITASDK` to the SDK installation directory, then run:
-
-```bash
-export VITASDK=/opt/vitasdk
-scripts/psv-dev.sh build
-```
-
-The resulting package is written to `build/psvita/Moonlight.vpk`. For installing the first VPK, deploying later builds, capturing PrincessLog output, and checking crash dumps, see the [PS Vita development guide](docs/psv-development.md).
-
-### PC (Windows/Linux/MacOS)
-
-To build for PC, the following components are required:
-
-- cmake/make build system
-- A C++ compiler supporting the C++17 standard
-
-Please refer to the usual sources of information for your particular operating system. Usually the commands needed to build this project will look like this:
-
-```bash
-cmake -B build/pc -DPLATFORM_DESKTOP=ON -DCMAKE_BUILD_TYPE=Release
-make -C build/pc -j$(nproc)
-```
-
-Also, please note that the `resources` folder must be available in the working directory, otherwise the program will fail to find the shaders.
-
-On Linux, enabling **Use hardware decoding** makes the FFmpeg decoder try
-VA-API, CUDA, and VDPAU in that order. The selected backend decodes into GPU
-surfaces and copies NV12, P010, or YUV420P frames back for the OpenGL renderer.
-If no compatible device or driver is available, Moonlight automatically falls
-back to software decoding.
-
-#### Linux and SteamOS releases
-
-Linux release builds are available for x86_64 and ARM64 as AppImage, portable
-tar, DEB, and RPM packages. SteamOS builds target Valve's Steam Linux Runtime 4.
-The Linux release configuration embeds resources and requires a VA-API-enabled
-FFmpeg with H.264 and HEVC hardware configurations.
-
-See the [Linux and SteamOS build and installation guide](docs/linux-distribution.md)
-for package selection, Steam Deck setup, local build commands, and the GitHub
-Actions matrix.
-
-#### Windows (MSYS2)
-
-Windows desktop builds are supported through MSYS2 system packages for both x64 and ARM64.
-
-MSYS2 is recommended under `C:\msys64`.
-
-##### x64 (UCRT64)
-
-Install the required packages:
-
-```bash
-pacman -S --needed --noconfirm \
-  mingw-w64-ucrt-x86_64-gcc \
-  mingw-w64-ucrt-x86_64-cmake \
-  mingw-w64-ucrt-x86_64-ninja \
-  mingw-w64-ucrt-x86_64-pkgconf \
-  mingw-w64-ucrt-x86_64-SDL2 \
-  mingw-w64-ucrt-x86_64-ffmpeg \
-  mingw-w64-ucrt-x86_64-curl \
-  mingw-w64-ucrt-x86_64-mbedtls \
-  mingw-w64-ucrt-x86_64-jansson \
-  mingw-w64-ucrt-x86_64-libpng \
-  mingw-w64-ucrt-x86_64-opus \
-  mingw-w64-ucrt-x86_64-expat \
-  mingw-w64-ucrt-x86_64-zstd
-```
-
-Build with the bundled preset:
-
-These Windows presets default to native D3D11 (DirectX 11). Pass `-DUSE_D3D11=OFF` when configuring only if you want to force the legacy OpenGL path.
-
-```bash
-cmake --preset windows-ucrt64-release
-cmake --build --preset windows-ucrt64-release
-```
-
-The resulting executable is placed in `build/windows-ucrt64`. The build stages the required MSYS2 UCRT64 DLLs beside `Moonlight.exe`; keep the generated `resources` directory there as well, because the UCRT64 build uses external resources instead of `libromfs`.
-
-##### ARM64 (CLANGARM64)
-
-To build a native Windows ARM64 executable, install the CLANGARM64 packages:
-
-```bash
-pacman -S --needed --noconfirm \
-  mingw-w64-clang-aarch64-clang \
-  mingw-w64-clang-aarch64-cmake \
-  mingw-w64-clang-aarch64-ninja \
-  mingw-w64-clang-aarch64-pkgconf \
-  mingw-w64-clang-aarch64-SDL2 \
-  mingw-w64-clang-aarch64-ffmpeg \
-  mingw-w64-clang-aarch64-curl \
-  mingw-w64-clang-aarch64-mbedtls \
-  mingw-w64-clang-aarch64-jansson \
-  mingw-w64-clang-aarch64-libpng \
-  mingw-w64-clang-aarch64-opus \
-  mingw-w64-clang-aarch64-expat \
-  mingw-w64-clang-aarch64-zstd
-```
-
-Build with the ARM64 preset:
-
-```bash
-cmake --preset windows-clangarm64-release
-cmake --build --preset windows-clangarm64-release
-```
-
-The resulting executable is placed in `build/windows-clangarm64`. The build stages the required MSYS2 CLANGARM64 DLLs beside `Moonlight.exe`; keep the generated `resources` directory there as well, because the desktop ARM64 build also uses external resources instead of `libromfs`.
-
-### iOS / tvOS:
-
-```shell
-# build libromfs generator
-./build_libromfs_generator.sh
-
-# prepare vcpkg
-./extern/vcpkg/bootstrap-vcpkg.sh
-```
-
-#### 1. Build for arm64 iphoneOS
-
-```shell
-# 1. Generate a Xcode project
-cmake -B build/ios -G Xcode -DPLATFORM_IOS=ON
-
-# 2. open project in Xcode
-open build/ios/*.xcodeproj
-
-# 3. Set up Team and Bundle Identifiers in Xcode, then connect devices to run.
-```
-
-#### 2. Build for arm64 tvOS
-
-```shell
-# 1. Generate a Xcode project
-cmake -B build/tvos -G Xcode -DPLATFORM_TVOS=ON
-
-# 2. open project in Xcode
-open build/tvos/*.xcodeproj
-
-# 3. Set up Team and Bundle Identifiers in Xcode, then connect devices to run.
-```
+- Switch is the only build target; Android, iOS, PSV and desktop are removed
+- The adaptive queue falls back to one frame of reserve when the link keeps jittering — latency returns to
+  the 1.5.0 figure in exchange for not stuttering
+- SixAxis needs the host to see a DS4; Switch Pro Controller gyro axes are not passed through natively
 
 ## Credits
-Thanks a lot to [Rock88](https://github.com/rock88) and his [Moonlight-NX](https://github.com/rock88/moonlight-nx), lots of streaming code has been lend from it 👍.
 
-[Xfangfang](https://github.com/xfangfang) for maintaining [Borealis](https://github.com/xfangfang/borealis) library. iOS port would not be possible without it. 
+Upstream [XITRIX/Moonlight-Switch](https://github.com/XITRIX/Moonlight-Switch) and
+[moonlight-stream](https://github.com/moonlight-stream). UI built on
+[borealis](https://github.com/XITRIX/borealis), streaming protocol via
+[moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c).
 
-[Averne](https://github.com/averne) for NVDEC implementation into [FFmpeg](https://github.com/averne/FFmpeg) and useful guidance of how to enable it 
+## License
 
-Also huge thanks to [Cooler3D](https://github.com/Cooler3Ds) for help with Deko3D implementation and solving performance issues
-
-The Switch deko3d upscaling path includes AMD FidelityFX Super Resolution 1.0 EASU and RCAS code translated from the MIT-licensed [GPUOpen FidelityFX-FSR](https://github.com/GPUOpen-Effects/FidelityFX-FSR) reference implementation. Copyright (c) Advanced Micro Devices, Inc. All rights reserved.
+GPLv3 — see [LICENSE](LICENSE).
