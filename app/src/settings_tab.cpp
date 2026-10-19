@@ -365,26 +365,26 @@ SettingsTab::SettingsTab() {
 #endif
 
 #if defined(__PSV__)
-    const float mbpsMaxLimit = 20000;
+    const int mbpsMaxLimit = 20;
 #elif defined(PLATFORM_SWITCH)
-    const float mbpsMaxLimit = 100000;
+    const int mbpsMaxLimit = 100;
 #else
-    const float mbpsMaxLimit = 150000;
+    const int mbpsMaxLimit = 150;
 #endif
 
-    const float limitOffset = 500;
-    const float limit = mbpsMaxLimit - limitOffset;
+    // A fixed 5 Mbps ladder instead of a slider: the last bit of precision
+    // never matters, and a short list is much faster to pick from.
+    std::vector<std::string> bitrateSteps;
+    for (int mbps = 5; mbps <= mbpsMaxLimit; mbps += 5)
+        bitrateSteps.push_back(fmt::format("{} Mbps", mbps));
 
-    float progress = (Settings::instance().bitrate() - limitOffset) / limit;
-    slider->getProgressEvent()->subscribe([this, limitOffset, limit](float progress) {
-        int bitrate = progress * limit + limitOffset;
-        float fbitrate = bitrate / 1000.0f;
-        std::stringstream stream;
-        stream << std::fixed << std::setprecision(1) << fbitrate;
-        header->setSubtitle(stream.str() + " Mbps");
-        Settings::instance().set_bitrate(bitrate);
-    });
-    slider->setProgress(progress);
+    const int bitrateIndex = std::min<int>(
+        (int)bitrateSteps.size() - 1,
+        std::max<int>(0, (Settings::instance().bitrate() + 2500) / 5000 - 1));
+    bitrate->init("settings/video_bitrate"_i18n, bitrateSteps, bitrateIndex,
+                  [](int selected) {
+                      Settings::instance().set_bitrate((selected + 1) * 5000);
+                  });
 
 #if defined(__SWITCH__)
     // Audren is the only audio backend the Switch build compiles in.

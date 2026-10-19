@@ -46,17 +46,9 @@
             <brls:SelectorCell
                 id="frame_buffer"/>
 
-            <brls:Header
-                id="header"
-                title="@i18n/settings/video_bitrate"
-                subtitle="10.0 Mbps"
+            <brls:SelectorCell
+                id="bitrate"
                 paddingTop="60"/>
-                
-            <brls:Slider
-                id="slider"
-                width="auto"
-                height="84"
-                grow="1"/>
 
             <brls:Header
                 id="image_adjustments_header"
