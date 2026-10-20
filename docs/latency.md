@@ -1,4 +1,4 @@
-# Latency: 1.5.0 → 1.5.19
+# Latency: 1.5.0 → 1.5.17
 
 Detailed derivation behind the table in the [README](README.md). Three paths — video, audio, controller input —
 each with the code parameters it rests on.
@@ -8,7 +8,7 @@ The figures are derived from the code at **60 fps (one frame = 16.7 ms)** and co
 adds on top of the host.
 
 > 1.5.12 and 1.5.13 changed nothing but the title shown in the home menu. 1.5.14 placed threads differently
-> rather than holding fewer frames, and 1.5.19 withdrew that placement, so the thread layout is the one from
+> rather than holding fewer frames, and 1.5.17 withdrew that placement, so the thread layout is the one from
 > before 1.5.14. These numbers therefore describe the shipped build.
 
 ### At a glance
@@ -75,7 +75,7 @@ A dropped frame is a single click; the old behaviour was 62.5 ms of lip-sync err
 The 4.2 ms figure bounds *press detected*, not *packet sent* — the send now trails the sample by microseconds
 instead of by a render pass.
 
-### Frame-time stability — 1.5.14, withdrawn in 1.5.19
+### Frame-time stability — 1.5.14, withdrawn in 1.5.17
 
 This release changes no number above. What it was meant to change is variance.
 
@@ -99,7 +99,7 @@ assuming three cores are available.
 On hardware, every build from 1.5.14 to 1.5.17 returned to the home menu about 0.4 s after the stream came up:
 no error code, no log line past the last queue sample. Skipping the placement call made the same build run
 normally, which leaves the two syscalls as the only thing that changed on that path. Which of them rejects the
-request has not been isolated, and only a console can answer it, so 1.5.19 leaves `kPinningEnabled` false:
+request has not been isolated, and only a console can answer it, so 1.5.17 leaves `kPinningEnabled` false:
 `placeCurrentThread()` returns immediately and the threads run exactly as they did before 1.5.14.
 
 `kPriorityAudio` moved to `0x20` on the way out. A normal process is only granted `0x20`..`0x3F`, and `0x1E`

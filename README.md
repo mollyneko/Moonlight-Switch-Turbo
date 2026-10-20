@@ -8,12 +8,12 @@ client-side latency.
 
 ---
 
-## Latency: 1.5.0 → 1.5.19
+## Latency: 1.5.0 → 1.5.17
 
 Client-added latency at 60 fps, derived from code parameters. Network and host encode are excluded.
-1.5.14 through 1.5.19 changed nothing on these paths.
+1.5.14 through 1.5.17 changed nothing on these paths.
 
-| | 1.5.0 | 1.5.19 | Change |
+| | 1.5.0 | 1.5.17 | Change |
 |:---|---:|---:|---:|
 | **Video** — age of the frame on screen | 1 frame · 16.7 ms | **0 frames · 0 ms** | −16.7 ms |
 | **Input** — age of the button press | 8.3 ms | **4.2 ms** | −4.2 ms |
@@ -42,12 +42,10 @@ Full derivation, per path: [docs/latency.md](docs/latency.md).
 | 1.5.11 | Bitrate moved from a slider to a 5 Mbps ladder |
 | 1.5.12 | Home menu title shows Moonlight-Switch-Turbo |
 | 1.5.13 | Title shortened to Moonlight-Turbo |
-| 1.5.14 | Decode threads moved off the render core (withdrawn in 1.5.19); dead decoder setting hidden |
+| 1.5.14 | Decode threads moved off the render core (withdrawn in 1.5.17); dead decoder setting hidden |
 | 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed |
 | 1.5.16 | Controller mode switch: PlayStation (default) or Xbox |
-| 1.5.17 | Gamepad packets unreliable unless buttons changed |
-| 1.5.18 | Sleep/wake recovery: the stream is only rebuilt when the frames stop coming |
-| 1.5.19 | Decode thread placement withdrawn — it ended the stream on hardware (current) |
+| 1.5.17 | Gamepad packets unreliable unless buttons changed; decode thread placement withdrawn (current) |
 
 ## Install
 
