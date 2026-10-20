@@ -1,4 +1,4 @@
-# Latency: 1.5.0 → 1.5.17
+# Latency: 1.5.0 → 1.5.19
 
 Detailed derivation behind the table in the [README](README.md). Three paths — video, audio, controller input —
 each with the code parameters it rests on.
@@ -7,8 +7,9 @@ each with the code parameters it rests on.
 The figures are derived from the code at **60 fps (one frame = 16.7 ms)** and cover only the latency the client
 adds on top of the host.
 
-> 1.5.12 and 1.5.13 changed nothing but the title shown in the home menu, and 1.5.14 changed how threads are
-> placed rather than how many frames are held. These numbers therefore describe the shipped build.
+> 1.5.12 and 1.5.13 changed nothing but the title shown in the home menu. 1.5.14 placed threads differently
+> rather than holding fewer frames, and 1.5.19 withdrew that placement, so the thread layout is the one from
+> before 1.5.14. These numbers therefore describe the shipped build.
 
 ### At a glance
 
@@ -74,32 +75,40 @@ A dropped frame is a single click; the old behaviour was 62.5 ms of lip-sync err
 The 4.2 ms figure bounds *press detected*, not *packet sent* — the send now trails the sample by microseconds
 instead of by a render pass.
 
-### Frame-time stability — 1.5.14
+### Frame-time stability — 1.5.14, withdrawn in 1.5.19
 
-This release changes no number above. What it changes is variance.
+This release changes no number above. What it was meant to change is variance.
 
 moonlight-common-c creates its 13 worker threads with a plain `pthread_create` and no platform setup, so on
 Switch they inherited no core mask and no priority — all of them ran at the default `0x2C` alongside the render
 loop, which `main.cpp` pins to core 0 at `0x20`. VideoDec and AudioDec are periodic, latency-sensitive loads;
 landing on the render core shows up as jittered frame times and audio crackle while total CPU use still looks
-low. 1.5.14 places them explicitly:
+low. 1.5.14 placed them explicitly:
 
 | Thread | Core | Priority |
 |:---|:---|:---|
-| AudioDec | 1 | `0x1E` (one step above the render loop) |
+| AudioDec | 1 | `0x1E` — below the floor a process is allowed |
 | VideoDec | 2 | `0x20` |
 | Render loop (unchanged) | 0 | `0x20` |
 
-Both are applied from inside the decode callbacks — `submit_decode_unit` and `decode_and_play_sample` only ever
-run on their respective thread — so `moonlight-common-c` stays an unmodified submodule. The placement is
-idempotent (one syscall on the first frame), reads the core mask the applet actually grants instead of assuming
-three cores are available, and falls back silently if the mask does not reach the requested core.
+Both were applied from inside the decode callbacks — `submit_decode_unit` and `decode_and_play_sample` only ever
+run on their respective thread — so `moonlight-common-c` stayed an unmodified submodule. The placement was
+idempotent (one syscall on the first frame) and read the core mask the applet actually grants instead of
+assuming three cores are available.
+
+On hardware, every build from 1.5.14 to 1.5.17 returned to the home menu about 0.4 s after the stream came up:
+no error code, no log line past the last queue sample. Skipping the placement call made the same build run
+normally, which leaves the two syscalls as the only thing that changed on that path. Which of them rejects the
+request has not been isolated, and only a console can answer it, so 1.5.19 leaves `kPinningEnabled` false:
+`placeCurrentThread()` returns immediately and the threads run exactly as they did before 1.5.14.
+
+`kPriorityAudio` moved to `0x20` on the way out. A normal process is only granted `0x20`..`0x3F`, and `0x1E`
+belongs to the range the system keeps for itself, so it is a standing suspect for the crash and should not be
+waiting there for whoever flips the switch back on. Both syscall results are checked now, so a future attempt
+logs "unpinned" instead of appearing to work.
 
 The **decoder thread count** setting is hidden on this build: hardware decoding pins the decoder to one thread,
 so the option had no effect on Switch. It remains available on desktop builds, where software decode uses it.
-
-Expect better frame pacing and a higher 1% low, and fewer audio underruns. Do not expect a lower average
-latency — the client-side budget in this document does not move.
 
 ---
 

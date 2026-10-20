@@ -4,16 +4,16 @@
 
 A Nintendo Switch client for [Moonlight](https://github.com/moonlight-stream) game streaming, forked from
 [XITRIX/Moonlight-Switch](https://github.com/XITRIX/Moonlight-Switch). Switch only. The 1.5.x line cuts
-client-side latency; 1.5.14 moves the decode threads off the render core.
+client-side latency.
 
 ---
 
-## Latency: 1.5.0 → 1.5.18
+## Latency: 1.5.0 → 1.5.19
 
 Client-added latency at 60 fps, derived from code parameters. Network and host encode are excluded.
-1.5.14 through 1.5.18 changed nothing on these paths.
+1.5.14 through 1.5.19 changed nothing on these paths.
 
-| | 1.5.0 | 1.5.18 | Change |
+| | 1.5.0 | 1.5.19 | Change |
 |:---|---:|---:|---:|
 | **Video** — age of the frame on screen | 1 frame · 16.7 ms | **0 frames · 0 ms** | −16.7 ms |
 | **Input** — age of the button press | 8.3 ms | **4.2 ms** | −4.2 ms |
@@ -42,11 +42,12 @@ Full derivation, per path: [docs/latency.md](docs/latency.md).
 | 1.5.11 | Bitrate moved from a slider to a 5 Mbps ladder |
 | 1.5.12 | Home menu title shows Moonlight-Switch-Turbo |
 | 1.5.13 | Title shortened to Moonlight-Turbo |
-| 1.5.14 | Decode threads moved off the render core; dead decoder setting hidden |
+| 1.5.14 | Decode threads moved off the render core (withdrawn in 1.5.19); dead decoder setting hidden |
 | 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed |
 | 1.5.16 | Controller mode switch: PlayStation (default) or Xbox |
 | 1.5.17 | Gamepad packets unreliable unless buttons changed |
-| 1.5.18 | Sleep/wake recovery: the stream is only rebuilt when the frames stop coming (current) |
+| 1.5.18 | Sleep/wake recovery: the stream is only rebuilt when the frames stop coming |
+| 1.5.19 | Decode thread placement withdrawn — it ended the stream on hardware (current) |
 
 ## Install
 
@@ -99,8 +100,8 @@ prerequisite for the low-latency path. If `uam` is unavailable, pre-compiled `.d
 - A jittery link makes the adaptive queue fall back to 1 frame of reserve — latency returns to the 1.5.0 figure
   in exchange for not stuttering, and a deeper configured queue raises that floor (setting 3 settles at 1 frame)
 - Touch and mouse don't get the double sample, so they keep the 8.3 ms mean wait
-- If the applet does not grant the requested core, decode threads stay unbound — streaming works, the jitter
-  benefit does not apply
+- Decode threads are not pinned to cores in this build: doing so ended the stream about 0.4 s after it started,
+  so the placement stays off until the failing syscall can be isolated on a console
 - SixAxis only works in PlayStation controller mode, and needs the host to see a DS4; Pro Controller gyro
   axes aren't passed through natively
 
