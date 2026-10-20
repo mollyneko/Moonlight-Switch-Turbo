@@ -1,4 +1,4 @@
-# Latency: 1.5.0 → 1.5.17
+# Latency: 1.5.0 → 1.5.18
 
 Detailed derivation behind the table in the [README](README.md). Three paths — video, audio, controller input —
 each with the code parameters it rests on.
@@ -13,7 +13,7 @@ adds on top of the host.
 
 ### At a glance
 
-| Path | What the number bounds | 1.5.0 | 1.5.17 | Change |
+| Path | What the number bounds | 1.5.0 | 1.5.18 | Change |
 |:---|:---|---:|---:|---:|
 | **Video** — queue residency | age of the frame on screen | 1.00 frame · 16.7 ms | 0.00 frame · **0 ms** | −16.7 ms |
 | **Input** — sampling wait (mean) | age of the button press | 0.50 frame · 8.3 ms | 0.25 frame · **4.2 ms** | −4.2 ms |
