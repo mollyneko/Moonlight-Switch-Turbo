@@ -21,6 +21,8 @@ MoonlightSession* MoonlightSession::activeSession() {
     return m_active_session;
 }
 
+void MoonlightSession::abandonActiveSession() { m_active_session = nullptr; }
+
 void MoonlightSession::set_provider(
     MoonlightSessionDecoderAndRenderProvider* provider) {
     m_provider = provider;
@@ -411,6 +413,12 @@ void MoonlightSession::stop(int terminate_app) {
 }
 
 void MoonlightSession::restart() {
+    m_restart_in_flight = true;
+
+    // Read before the teardown: the owner may abandon the session while
+    // LiStopConnection() is running, and then m_active_session is null.
+    const bool is_sunshine = m_is_sunshine;
+
     LiStopConnection();
 
     start([](const GSResult<bool>& result) {
@@ -423,7 +431,9 @@ void MoonlightSession::restart() {
                 m_active_session->m_is_terminated = true;
             }
         }
-    }, m_active_session->m_is_sunshine);
+    }, is_sunshine);
+
+    m_restart_in_flight = false;
 }
 
 void MoonlightSession::draw(NVGcontext* vg, int width, int height) {

@@ -82,6 +82,16 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
 
     session = new MoonlightSession(host.preferred_address(), app.app_id);
 
+    // The only wake notification an application gets: the applet focus hook
+    // behind this event fires when the console comes back. It also fires for
+    // the HOME menu, which is harmless -- a stream that kept running keeps
+    // pushing frames, so the probe drops straight back to Idle.
+    windowFocusSubscription =
+        Application::getWindowFocusChangedEvent()->subscribe([this](bool focused) {
+            if (focused && !terminated && recovery != Recovery::Recovering)
+                wakeDetected = true;
+        });
+
 #ifdef PLATFORM_TVOS
         updatePreferredDisplayMode(true);
 #endif
@@ -291,32 +301,20 @@ void StreamingView::onFocusLost() {
 
 void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
                          float height, Style style, FrameContext* ctx) {
-    if (session->is_terminated()) {
-        terminate(false);
-        return;
-    }
-
-    // A sleep/wake cycle leaves the sockets, NVDEC and the GPU channel in a
-    // state nobody told this process about. Streaming on top of them is what
-    // wedges the console when the app is closed later, so rebuild the session
-    // instead of continuing. Same suspension heuristic AVFrameHolder uses:
-    // while the app actually runs, no two frames are a whole second apart.
-    //
-    // A real suspend is many seconds long, so the threshold sits well above the
-    // longest hiccup a streaming frame can suffer. At one second a single slow
-    // SD write was enough to tear the whole session down and renegotiate it,
-    // which is a far worse experience than simply dropping the frames that
-    // were missed.
     const auto now = std::chrono::steady_clock::now();
     const auto sinceLastDraw = now - lastDrawTime;
     lastDrawTime = now;
-    if (sinceLastDraw > std::chrono::seconds(3)) {
-        brls::Logger::info(
-            "StreamingView: drew {}ms after the previous frame, restarting the "
-            "session",
-            std::chrono::duration_cast<std::chrono::milliseconds>(sinceLastDraw)
-                .count());
-        session->restart();
+
+    // A sleep/wake cycle leaves the sockets, NVDEC and audren in a state nobody
+    // told this process about, and streaming on top of them is what wedges the
+    // console when the app is closed later. The recovery flow below rebuilds the
+    // session, but only after the frames themselves say it is dead: see
+    // updateRecovery().
+    if (updateRecovery(now, sinceLastDraw))
+        return;
+
+    if (session->is_terminated()) {
+        terminate(false);
         return;
     }
 
@@ -474,6 +472,108 @@ void StreamingView::removeKeyboard() {
     Application::giveFocus(this);
 }
 
+// MARK: Sleep/wake recovery
+
+bool StreamingView::updateRecovery(std::chrono::steady_clock::time_point now,
+                                   std::chrono::steady_clock::duration sinceLastDraw) {
+    auto& frames = AVFrameHolder::instance();
+
+    switch (recovery) {
+        case Recovery::Idle: {
+            if (session->is_terminated())
+                return false; // draw() closes the view right below.
+
+            const bool woke = wakeDetected;
+            wakeDetected    = false;
+
+            // The frame gap stays as a fallback for the case where no applet
+            // notification arrives. It is deliberately looser than a hiccup: a
+            // single slow frame must not cost a renegotiation.
+            if (!woke && sinceLastDraw <= std::chrono::seconds(3))
+                return false;
+
+            recovery           = Recovery::Probing;
+            recoveryPhaseStart = now;
+            probeBaseFrames    = frames.getPushedTotal();
+
+            brls::Logger::info(
+                "StreamingView: wake detected ({}ms since the last frame), "
+                "probing the stream",
+                std::chrono::duration_cast<std::chrono::milliseconds>(sinceLastDraw).count());
+            return false;
+        }
+        case Recovery::Probing: {
+            // Frames decoded before the sleep are still sitting in the queue and
+            // never move this counter, so only fresh decodes count as a recovery.
+            if (frames.getPushedTotal() >= probeBaseFrames + 3) {
+                brls::Logger::info("StreamingView: stream resumed on its own");
+                recovery = Recovery::Idle;
+                return false;
+            }
+
+            if (now - recoveryPhaseStart < std::chrono::milliseconds(1500))
+                return false; // Keep the last frames on screen while waiting.
+
+            beginRecovery(now);
+            return true;
+        }
+        case Recovery::Recovering: {
+            if (frames.getPushedTotal() > recoveryBaseFrames) {
+                brls::Logger::info("StreamingView: stream recovered");
+                loader->setHidden(true);
+                recovery     = Recovery::Idle;
+                lastDrawTime = now;
+                return false; // The first new frame is drawn on this very frame.
+            }
+
+            if (session->is_terminated()) {
+                brls::Logger::error("StreamingView: the restarted session was terminated");
+                abandonRecovery();
+                terminate(false);
+                return true;
+            }
+
+            if (now - recoveryPhaseStart > std::chrono::seconds(8)) {
+                brls::Logger::error("StreamingView: stream recovery timed out");
+                abandonRecovery();
+                terminate(false);
+                return true;
+            }
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void StreamingView::beginRecovery(std::chrono::steady_clock::time_point now) {
+    recovery           = Recovery::Recovering;
+    recoveryPhaseStart = now;
+    recoveryBaseFrames = AVFrameHolder::instance().getPushedTotal();
+
+    // The spinner goes up before anything is torn down. LiStopConnection() is a
+    // synchronous, ordered teardown that can take seconds after a wake, so it
+    // runs off the UI thread: this frame and the ones after it still get drawn,
+    // which is the difference between "recovering" and "frozen".
+    loader->setHidden(false);
+    brls::Logger::info("StreamingView: restarting the session after a wake");
+
+    // Capture the session rather than `this`: the worker outlives a dismissal,
+    // and ~StreamingView() leaves the session alone while it is restarting.
+    MoonlightSession* target = session;
+    brls::async([target]() { target->restart(); });
+}
+
+void StreamingView::abandonRecovery() {
+    loader->setHidden(true);
+
+    // The restart worker may still own the session, so it cannot be deleted from
+    // here. Hand it over to nobody: the callbacks become no-ops and the exit
+    // path will not block on a teardown that already proved it can wedge.
+    MoonlightSession::abandonActiveSession();
+}
+
 void StreamingView::terminate(bool terminateApp) {
     if (terminated)
         return;
@@ -482,7 +582,10 @@ void StreamingView::terminate(bool terminateApp) {
     brls::Logger::info("StreamingView: terminating session (terminate_app={})",
                        terminateApp);
 
-    session->stop(terminateApp);
+    // A restart in flight already owns the teardown; waiting for it here would
+    // block the UI on the same calls that may be wedged.
+    if (!session->is_restarting())
+        session->stop(terminateApp);
 
     int controllersCount = Application::getPlatform()->getInputManager()->getControllersConnectedCount();
     for (int i = 0; i < controllersCount; i++)
@@ -664,6 +767,19 @@ StreamingView::~StreamingView() {
         ->getInputManager()
         ->getKeyboardKeyStateChanged()
         ->unsubscribe(keysSubscription);
+    Application::getWindowFocusChangedEvent()->unsubscribe(windowFocusSubscription);
+
+    if (session->is_restarting()) {
+        // The restart worker still owns the session; deleting it here would be a
+        // use-after-free. Leaking it is the policy used everywhere else in this
+        // app, and the process is on its way out anyway.
+        brls::Logger::warning(
+            "StreamingView: dismissed while a restart is still running, "
+            "leaking the session");
+        MoonlightSession::abandonActiveSession();
+        return;
+    }
+
     session->stop(false);
     delete session;
 }

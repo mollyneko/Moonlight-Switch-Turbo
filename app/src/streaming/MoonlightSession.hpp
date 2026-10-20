@@ -2,6 +2,7 @@
 
 #include "GameStreamClient.hpp"
 #include "MoonlightSessionDecoderAndRenderProvider.hpp"
+#include <atomic>
 #include <nanovg.h>
 
 struct SessionStats {
@@ -25,11 +26,22 @@ class MoonlightSession {
 
     static MoonlightSession* activeSession();
 
+    // Hand the current session over to nobody: callbacks become no-ops and
+    // activeSession() returns null, so the exit path will not try to tear it
+    // down. Used when a restart is wedged after a wake, where blocking on a
+    // stale nvhost/audren teardown is worse than leaking the session.
+    static void abandonActiveSession();
+
     void start(ServerCallback<bool> callback, bool is_sunshine);
     void stop(int terminate_app);
     void set_address(const std::string& address) { m_address = address; }
 
     void restart();
+
+    // True while restart() is between LiStopConnection() and the end of
+    // start(). That teardown is synchronous and may block for seconds after a
+    // wake, so the owner must not delete the session underneath it.
+    bool is_restarting() const { return m_restart_in_flight.load(); }
 
     void draw(NVGcontext* vg, int width, int height);
 
@@ -94,6 +106,8 @@ class MoonlightSession {
     bool m_is_active = false;
     bool m_is_terminated = false;
     bool m_stop_requested = false;
+    // Written by whichever thread runs restart(), read by the owner's teardown.
+    std::atomic<bool> m_restart_in_flight{false};
     bool m_connection_status_is_poor = false;
     bool m_use_hdr = false;
 

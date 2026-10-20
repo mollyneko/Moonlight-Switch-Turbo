@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Singleton.hpp"
+#include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include "Settings.hpp"
 #include <mutex>
@@ -124,11 +126,21 @@ private:
 class AVFrameHolder : public Singleton<AVFrameHolder> {
   public:
     void push(AVFrame* frame) {
+        pushedTotal.fetch_add(1, std::memory_order_relaxed);
         m_frame_queue.push(frame);
     }
 
     void pushTransferred(AVFrame* frame) {
+        pushedTotal.fetch_add(1, std::memory_order_relaxed);
         m_frame_queue.pushTransferred(frame);
+    }
+
+    // Monotonic count of frames handed over by the decoder. A sleep/wake cycle
+    // leaves stale frames sitting in the queue, so queue size alone cannot tell
+    // a recovered stream from a frozen one: only this counter moves when the
+    // decoder is actually running again.
+    [[nodiscard]] uint64_t getPushedTotal() const {
+        return pushedTotal.load(std::memory_order_relaxed);
     }
 
     // Deliberately a template rather than std::function: the renderer's lambda
@@ -181,5 +193,7 @@ class AVFrameHolder : public Singleton<AVFrameHolder> {
     [[nodiscard]] double getFrameQueuePresentWaitMs() const { return m_frame_queue.getPresentWaitMs(); }
 
   private:
+    // Written by the decode thread, read by the UI thread.
+    std::atomic<uint64_t> pushedTotal{0};
     AVFrameQueue m_frame_queue;
 };
