@@ -8,12 +8,12 @@ client-side latency; 1.5.14 moves the decode threads off the render core.
 
 ---
 
-## Latency: 1.5.0 → 1.5.17
+## Latency: 1.5.0 → 1.5.18
 
 Client-added latency at 60 fps, derived from code parameters. Network and host encode are excluded.
-1.5.14 through 1.5.17 changed nothing on these paths.
+1.5.14 through 1.5.18 changed nothing on these paths.
 
-| | 1.5.0 | 1.5.17 | Change |
+| | 1.5.0 | 1.5.18 | Change |
 |:---|---:|---:|---:|
 | **Video** — age of the frame on screen | 1 frame · 16.7 ms | **0 frames · 0 ms** | −16.7 ms |
 | **Input** — age of the button press | 8.3 ms | **4.2 ms** | −4.2 ms |
@@ -45,7 +45,8 @@ Full derivation, per path: [docs/latency.md](docs/latency.md).
 | 1.5.14 | Decode threads moved off the render core; dead decoder setting hidden |
 | 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed |
 | 1.5.16 | Controller mode switch: PlayStation (default) or Xbox |
-| 1.5.17 | Gamepad packets unreliable unless buttons changed (current) |
+| 1.5.17 | Gamepad packets unreliable unless buttons changed |
+| 1.5.18 | Sleep/wake recovery: the stream is only rebuilt when the frames stop coming (current) |
 
 ## Install
 
