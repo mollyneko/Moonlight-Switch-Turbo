@@ -105,6 +105,14 @@ int main(int argc, char* argv[]) {
     // when doing software decoding
     svcSetThreadPriority(CUR_THREAD_HANDLE, 0x20);
 
+    // Borealis' Switch port polls the panel with hidGetTouchScreenStates() every
+    // frame but never runs the activate command that fills that LIFO: the pad is
+    // driven through padUpdate(), and hidInitializeTouchScreen() is otherwise
+    // only reached from hidScanInput(), which this port does not call. An
+    // inactive panel reads back zero touches forever, so taps never reach a
+    // view and the touch-as-mouse path never sees a finger at all.
+    hidInitializeTouchScreen();
+
     // auto at = appletGetAppletType();
     // g_application_mode = at == AppletType_Application || at == AppletType_SystemApplication;
 
