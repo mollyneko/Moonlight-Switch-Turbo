@@ -8,12 +8,12 @@ client-side latency; 1.5.14 moves the decode threads off the render core.
 
 ---
 
-## Latency: 1.5.0 → 1.5.15
+## Latency: 1.5.0 → 1.5.16
 
 Client-added latency at 60 fps, derived from code parameters. Network and host encode are excluded.
-1.5.14 and 1.5.15 changed nothing on these paths.
+1.5.14 through 1.5.16 changed nothing on these paths.
 
-| | 1.5.0 | 1.5.15 | Change |
+| | 1.5.0 | 1.5.16 | Change |
 |:---|---:|---:|---:|
 | **Video** — age of the frame on screen | 1 frame · 16.7 ms | **0 frames · 0 ms** | −16.7 ms |
 | **Input** — age of the button press | 8.3 ms | **4.2 ms** | −4.2 ms |
@@ -21,22 +21,6 @@ Client-added latency at 60 fps, derived from code parameters. Network and host e
 | **Audio** — lip-sync offset | 62.5 ms | **25.0 ms** | −37.5 ms |
 
 Full derivation, per path: [docs/latency.md](docs/latency.md).
-
-## What changed
-
-**Video** — the frame queue starts at the 1.5.0 depth and hands its reserve back to zero after 5 s of clean
-play, returning it on any underrun (1.5.0 rebuilt it after every miss, in visible stutter cycles). Pacing sheds
-a backlog in 0.6 s instead of 3.8 s. The GPU fence is waited on at the top of the next frame, so input sampling
-and the UI pass run while the post-process finishes. RCAS writes straight into the framebuffer when dithering is
-off, dropping a full-resolution copy per frame. Decode configuration is unchanged.
-
-**Audio** — only 2 of the 5 wave buffers may queue, and the blocking write was replaced by dropping frames past
-30 ms pending; that is what made the cap real. The 400-call drift correction is gone with nothing left to
-correct.
-
-**Input** — the gamepad is sampled twice per frame (8.3 ms interval) and the first sample now runs *before* the
-render pass instead of after it, so a packet leaves without waiting for a frame. Touch and mouse keep the single
-sample.
 
 ## 1.5.14 — thread placement
 
@@ -70,6 +54,20 @@ as an element count.
 
 On the order of 20–40 µs per frame — measurable in a loop, not in a game.
 
+## 1.5.16 — controller mode
+
+A settings switch, **PlayStation** (default) or **Xbox**. It changes the type sent in the controller arrival
+event, which is what Sunshine reads when deciding which virtual pad to create. The client used to report
+`LI_CTYPE_UNKNOWN` and let the host infer from the declared capabilities — and because the Switch pad declares
+a gyroscope, that inference lands on a DualShock.
+
+Xbox mode drops the accelerometer and gyroscope from those capabilities and stops sending motion events, since
+an X360 pad has neither. The switch takes effect mid-session: the arrival event is re-sent rather than waiting
+for a reconnect.
+
+Also fixed: the arrival event used to be sent from inside the "state changed" branch, so a pad that was
+connected and then left alone was never announced at all.
+
 ---
 
 ## Version history
@@ -91,7 +89,8 @@ On the order of 20–40 µs per frame — measurable in a loop, not in a game.
 | 1.5.12 | Home menu title shows Moonlight-Switch-Turbo |
 | 1.5.13 | Title shortened to Moonlight-Turbo |
 | 1.5.14 | Decode threads moved off the render core; dead decoder setting hidden |
-| 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed (current) |
+| 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed |
+| 1.5.16 | Controller mode switch: PlayStation (default) or Xbox (current) |
 
 ## Install
 
