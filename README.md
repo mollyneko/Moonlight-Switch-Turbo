@@ -8,11 +8,12 @@ client-side latency; 1.5.14 moves the decode threads off the render core.
 
 ---
 
-## Latency: 1.5.0 → 1.5.14
+## Latency: 1.5.0 → 1.5.15
 
 Client-added latency at 60 fps, derived from code parameters. Network and host encode are excluded.
+1.5.14 and 1.5.15 changed nothing on these paths.
 
-| | 1.5.0 | 1.5.14 | Change |
+| | 1.5.0 | 1.5.15 | Change |
 |:---|---:|---:|---:|
 | **Video** — age of the frame on screen | 1 frame · 16.7 ms | **0 frames · 0 ms** | −16.7 ms |
 | **Input** — age of the button press | 8.3 ms | **4.2 ms** | −4.2 ms |
@@ -54,6 +55,21 @@ available. The decoder-thread-count setting is hidden on Switch, where hardware 
 
 This is a frame-pacing fix, not a latency cut — the numbers above do not move.
 
+## 1.5.15 — input clean-up
+
+The second gamepad sample of each frame used to run the whole `handleInput()` path again: mouse
+polling, touch polling, the unified pad mapping, the scroll accumulator, the keyboard diff. None of
+it can have changed in the microseconds since the first sample, and the comment at that call site had
+always said only the pad was sampled. It now goes through `handleGamepadOnly()`, which re-reads the
+pad and reuses the touch-derived special key — two HID round-trips and a full input derivation off
+the path into present.
+
+Also gone: a per-frame 3 s timer that only existed to call `setBottomBarStatus()`, which is empty
+outside the SDL platforms, and a redundant `std::fill` in `mapController()` that also used `sizeof`
+as an element count.
+
+On the order of 20–40 µs per frame — measurable in a loop, not in a game.
+
 ---
 
 ## Version history
@@ -74,7 +90,8 @@ This is a frame-pacing fix, not a latency cut — the numbers above do not move.
 | 1.5.11 | Bitrate moved from a slider to a 5 Mbps ladder |
 | 1.5.12 | Home menu title shows Moonlight-Switch-Turbo |
 | 1.5.13 | Title shortened to Moonlight-Turbo |
-| 1.5.14 | Decode threads moved off the render core; dead decoder setting hidden (current) |
+| 1.5.14 | Decode threads moved off the render core; dead decoder setting hidden |
+| 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed (current) |
 
 ## Install
 
