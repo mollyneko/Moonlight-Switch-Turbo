@@ -7,3 +7,6 @@ vcpkg_installed
 .workbuddy/
 *.nro
 dist/
+.switchbuild_bak/
+*.log
+rebuild_switch.ps1
