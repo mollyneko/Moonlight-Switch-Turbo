@@ -519,7 +519,11 @@ void StreamingView::handleInput() {
 //        MoonlightInputManager::instance().dropInput();
     }
 //    else {
-    sampleGamepadInput();
+    // Full pass. Touch events, mouse buttons, scroll and keyboard all leave
+    // from here; the late sample at the end of draw() only re-reads the pad.
+    // This used to call sampleGamepadInput(), which is why routing that helper
+    // to handleGamepadOnly() silently stopped every touch event from being sent.
+    MoonlightInputManager::instance().handleInput(keyboard != nullptr);
 //    }
 
 #if defined(__SDL2__) || defined(__SDL3__)
