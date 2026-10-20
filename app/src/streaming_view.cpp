@@ -110,16 +110,6 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
                     showError(result.error(), [this]() { terminate(false); });
                 } else {
                     brls::Logger::info("StreamingView: stream started");
-                    // With this switch on, every gesture handler below returns
-                    // before it reaches the mouse emulation, so a finger does
-                    // nothing on the host. Say it once instead of leaving the
-                    // user to conclude that touch is broken.
-                    if (Settings::instance().touchscreen_mouse_mode()) {
-                        brls::sync([] {
-                            brls::Application::notify(
-                                "streaming/touchscreen_mode_hint"_i18n);
-                        });
-                    }
                 }
             }, result.value().isSunshine());
         });
