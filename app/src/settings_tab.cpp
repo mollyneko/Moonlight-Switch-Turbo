@@ -293,6 +293,12 @@ SettingsTab::SettingsTab() {
         }
     });
 
+#if defined(__SWITCH__)
+    // Hardware decoding is mandatory here and runs with a single thread: the
+    // decoder forces thread_count = 1 whenever NVTEGRA is active, so this row
+    // would be a control that changes nothing. Hide it instead of lying.
+    decoder->removeFromSuperView(true);
+#else
     std::vector<std::string> decoders = {"settings/zero_threads"_i18n, "2", "3",
                                          "4"};
     decoder->setText("settings/decoder_threads"_i18n);
@@ -313,6 +319,7 @@ SettingsTab::SettingsTab() {
             DEFAULT;
         }
     });
+#endif
 
     std::vector<VideoCodec> supportedCodecs = {
         H264,
