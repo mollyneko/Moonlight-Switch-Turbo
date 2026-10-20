@@ -53,6 +53,13 @@ class MoonlightInputManager : public Singleton<MoonlightInputManager> {
     MoonlightInputManager();
     void dropInput();
     void handleInput(bool ignoreTouch = false);
+    // Gamepad-only sample for the second capture of a frame. It reuses the
+    // touch-derived state handleInput() computed moments earlier instead of
+    // polling the touch screen and the unified pad again, which is what the
+    // comment at the second call site always claimed it did. ignoreTouch
+    // suppresses that reuse: an open keyboard changes the special-key result,
+    // and the old code expressed that by passing the flag through.
+    void handleGamepadOnly(bool ignoreTouch = false);
     void handleRumble(unsigned short controller, unsigned short lowFreqMotor, unsigned short highFreqMotor);
     void handleRumbleTriggers(unsigned short controller, unsigned short lowFreqMotor, unsigned short highFreqMotor);
     void updateTouchScreenPanDelta(brls::PanGestureStatus panStatus);
@@ -88,6 +95,8 @@ class MoonlightInputManager : public Singleton<MoonlightInputManager> {
     std::chrono::steady_clock::time_point lastDesktopScrollEvent;
     bool inputDropped = false;
     bool inputEnabled = true;
+    // Set by handleInput(), consumed by handleGamepadOnly() in the same frame.
+    bool lastSpecialKey = false;
 
     brls::ControllerState mapController(const brls::ControllerState& controller);
     static short glfwKeyToVKKey(brls::BrlsKeyboardScancode key);

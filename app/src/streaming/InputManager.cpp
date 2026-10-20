@@ -455,6 +455,9 @@ void MoonlightInputManager::handleInput(bool ignoreTouch) {
 
     //Do not use gamepad for mouse controll assist if touchscreen mode enabled
     bool specialKey = !ignoreTouch && !Settings::instance().touchscreen_mouse_mode() && states.size() == 1;
+    // The second sample of this frame runs right before present and must see the
+    // same touch state; caching it here keeps that sample from polling again.
+    lastSpecialKey = specialKey;
 
     handleControllers(specialKey);
 
@@ -591,6 +594,18 @@ void MoonlightInputManager::handleInput(bool ignoreTouch) {
     }
 }
 
+void MoonlightInputManager::handleGamepadOnly(bool ignoreTouch) {
+    inputDropped = false;
+    // Only the pad is re-read here. Mouse buttons, scroll accumulation, touch
+    // events and keyboard diffing are all unchanged since handleInput() ran
+    // earlier in this same frame, and re-deriving them would put another round
+    // of HID IPC on the path that leads straight into present.
+    //
+    // An open keyboard pins the special key to false, matching what the old
+    // handleInput(keyboard != nullptr) call produced for the second sample.
+    handleControllers(ignoreTouch ? false : lastSpecialKey);
+}
+
 short MoonlightInputManager::controllersToMap() {
     switch (brls::Application::getPlatform()
                 ->getInputManager()
@@ -611,8 +626,6 @@ short MoonlightInputManager::controllersToMap() {
 brls::ControllerState
 MoonlightInputManager::mapController(const brls::ControllerState& controller) {
     brls::ControllerState result{};
-
-    std::fill(result.buttons, result.buttons + sizeof(result.buttons), false);
 
     for (int i = 0; i < _AXES_MAX; i++)
         result.axes[i] = controller.axes[i];

@@ -522,6 +522,10 @@ void StreamingView::handleInput() {
     sampleGamepadInput();
 //    }
 
+#if defined(__SDL2__) || defined(__SDL3__)
+    // setBottomBarStatus() is a no-op outside the SDL platforms, so on Switch
+    // this whole block was cancelling and re-arming a 3 s timer every frame
+    // while a finger was down, to call a function that does nothing.
     if (!Application::currentTouchState.empty()) {
         setBottomBarStatus("2");
 
@@ -535,6 +539,7 @@ void StreamingView::handleInput() {
             bottombarDelayTask = -1;
         });
     }
+#endif
 }
 
 void StreamingView::sampleGamepadInput() {
@@ -543,7 +548,7 @@ void StreamingView::sampleGamepadInput() {
         return;
     }
 
-    MoonlightInputManager::instance().handleInput(keyboard != nullptr);
+    MoonlightInputManager::instance().handleGamepadOnly(keyboard != nullptr);
 }
 
 void StreamingView::handleOverlayCombo() {
