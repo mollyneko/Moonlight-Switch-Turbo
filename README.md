@@ -1,6 +1,6 @@
 # Moonlight-Switch-Turbo
 
-**English** | [简体中文](README.zh-CN.md)
+**English** | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 A Nintendo Switch client for [Moonlight](https://github.com/moonlight-stream) game streaming, forked from
 [XITRIX/Moonlight-Switch](https://github.com/XITRIX/Moonlight-Switch). Switch only. The 1.5.x line cuts
@@ -8,12 +8,12 @@ client-side latency; 1.5.14 moves the decode threads off the render core.
 
 ---
 
-## Latency: 1.5.0 → 1.5.16
+## Latency: 1.5.0 → 1.5.17
 
 Client-added latency at 60 fps, derived from code parameters. Network and host encode are excluded.
-1.5.14 through 1.5.16 changed nothing on these paths.
+1.5.14 through 1.5.17 changed nothing on these paths.
 
-| | 1.5.0 | 1.5.16 | Change |
+| | 1.5.0 | 1.5.17 | Change |
 |:---|---:|---:|---:|
 | **Video** — age of the frame on screen | 1 frame · 16.7 ms | **0 frames · 0 ms** | −16.7 ms |
 | **Input** — age of the button press | 8.3 ms | **4.2 ms** | −4.2 ms |
@@ -21,52 +21,6 @@ Client-added latency at 60 fps, derived from code parameters. Network and host e
 | **Audio** — lip-sync offset | 62.5 ms | **25.0 ms** | −37.5 ms |
 
 Full derivation, per path: [docs/latency.md](docs/latency.md).
-
-## 1.5.14 — thread placement
-
-The 13 worker threads moonlight-common-c creates had no core mask and no priority, so VideoDec and AudioDec
-competed with the render loop that `main.cpp` pins to core 0. They are now placed explicitly:
-
-| Thread | Core | Priority |
-|:---|:---|:---|
-| AudioDec | 1 | `0x1E` |
-| VideoDec | 2 | `0x20` |
-| Render loop (unchanged) | 0 | `0x20` |
-
-Both are set from inside their own decode callbacks, so `moonlight-common-c` stays an unmodified submodule.
-Placement is idempotent, reads the mask the applet actually grants, and falls back silently if that core is not
-available. The decoder-thread-count setting is hidden on Switch, where hardware decoding pins it to one thread.
-
-This is a frame-pacing fix, not a latency cut — the numbers above do not move.
-
-## 1.5.15 — input clean-up
-
-The second gamepad sample of each frame used to run the whole `handleInput()` path again: mouse
-polling, touch polling, the unified pad mapping, the scroll accumulator, the keyboard diff. None of
-it can have changed in the microseconds since the first sample, and the comment at that call site had
-always said only the pad was sampled. It now goes through `handleGamepadOnly()`, which re-reads the
-pad and reuses the touch-derived special key — two HID round-trips and a full input derivation off
-the path into present.
-
-Also gone: a per-frame 3 s timer that only existed to call `setBottomBarStatus()`, which is empty
-outside the SDL platforms, and a redundant `std::fill` in `mapController()` that also used `sizeof`
-as an element count.
-
-On the order of 20–40 µs per frame — measurable in a loop, not in a game.
-
-## 1.5.16 — controller mode
-
-A settings switch, **PlayStation** (default) or **Xbox**. It changes the type sent in the controller arrival
-event, which is what Sunshine reads when deciding which virtual pad to create. The client used to report
-`LI_CTYPE_UNKNOWN` and let the host infer from the declared capabilities — and because the Switch pad declares
-a gyroscope, that inference lands on a DualShock.
-
-Xbox mode drops the accelerometer and gyroscope from those capabilities and stops sending motion events, since
-an X360 pad has neither. The switch takes effect mid-session: the arrival event is re-sent rather than waiting
-for a reconnect.
-
-Also fixed: the arrival event used to be sent from inside the "state changed" branch, so a pad that was
-connected and then left alone was never announced at all.
 
 ---
 
@@ -90,7 +44,8 @@ connected and then left alone was never announced at all.
 | 1.5.13 | Title shortened to Moonlight-Turbo |
 | 1.5.14 | Decode threads moved off the render core; dead decoder setting hidden |
 | 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed |
-| 1.5.16 | Controller mode switch: PlayStation (default) or Xbox (current) |
+| 1.5.16 | Controller mode switch: PlayStation (default) or Xbox |
+| 1.5.17 | Gamepad packets unreliable unless buttons changed (current) |
 
 ## Install
 
@@ -114,7 +69,8 @@ scroll wheel while touching. USB mice work.
 **Keyboard** — three-finger tap for the on-screen keyboard; USB keyboards work directly.
 
 **Gamepad** — X360 mapping by default (A/B and X/Y swapped), remappable. Up to 5 controllers, single Joy-Cons
-included. Configure Sunshine to see a DS4 for gyro and accelerometer (player 1 only).
+included. **Controller mode** in settings picks the pad the host emulates: *PlayStation* (default, keeps gyro
+and accelerometer) or *Xbox* (no motion — an X360 pad has none). Switching applies mid-session.
 
 **Overlay** — `-` and `+` together, or hold `ESC`. Both the combo and the hold time are configurable.
 
@@ -144,7 +100,8 @@ prerequisite for the low-latency path. If `uam` is unavailable, pre-compiled `.d
 - Touch and mouse don't get the double sample, so they keep the 8.3 ms mean wait
 - If the applet does not grant the requested core, decode threads stay unbound — streaming works, the jitter
   benefit does not apply
-- SixAxis needs the host to see a DS4; Pro Controller gyro axes aren't passed through natively
+- SixAxis only works in PlayStation controller mode, and needs the host to see a DS4; Pro Controller gyro
+  axes aren't passed through natively
 
 ## Credits
 
