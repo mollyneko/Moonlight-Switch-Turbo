@@ -486,10 +486,19 @@ bool StreamingView::updateRecovery(std::chrono::steady_clock::time_point now,
             const bool woke = wakeDetected;
             wakeDetected    = false;
 
-            // The frame gap stays as a fallback for the case where no applet
-            // notification arrives. It is deliberately looser than a hiccup: a
-            // single slow frame must not cost a renegotiation.
-            if (!woke && sinceLastDraw <= std::chrono::seconds(3))
+            // The fallback watches the decoder, not the UI. Drawing keeps going
+            // at 60 fps even when the stream is dead, so the draw gap never
+            // grows once the app is running again; frames that stop arriving do.
+            // It stays disarmed until the session has pushed its first frame,
+            // otherwise the initial connection would look like starvation.
+            const int64_t lastPush  = frames.getLastPushNs();
+            const int64_t silenceNs = lastPush == 0 ? 0 : AVFrameHolder::nowNs() - lastPush;
+            const bool starved =
+                lastPush != 0 &&
+                silenceNs > std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::seconds(3)).count();
+
+            if (!woke && !starved)
                 return false;
 
             recovery           = Recovery::Probing;
@@ -497,15 +506,25 @@ bool StreamingView::updateRecovery(std::chrono::steady_clock::time_point now,
             probeBaseFrames    = frames.getPushedTotal();
 
             brls::Logger::info(
-                "StreamingView: wake detected ({}ms since the last frame), "
-                "probing the stream",
+                "StreamingView: {} ({}ms since the last video frame, {}ms since "
+                "the last draw), probing the stream",
+                woke ? "wake detected" : "stream starved",
+                lastPush == 0 ? 0 : silenceNs / 1000000,
                 std::chrono::duration_cast<std::chrono::milliseconds>(sinceLastDraw).count());
             return false;
         }
         case Recovery::Probing: {
             // Frames decoded before the sleep are still sitting in the queue and
             // never move this counter, so only fresh decodes count as a recovery.
-            if (frames.getPushedTotal() >= probeBaseFrames + 3) {
+            // A burst that merely drains the packets queued before the sleep does
+            // move it though, so the pushes must also still be recent: a live
+            // stream keeps producing them, a drained one goes quiet.
+            const bool flowing =
+                frames.getPushedTotal() >= probeBaseFrames + 3 &&
+                (AVFrameHolder::nowNs() - frames.getLastPushNs()) <
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::milliseconds(500)).count();
+            if (flowing) {
                 brls::Logger::info("StreamingView: stream resumed on its own");
                 recovery = Recovery::Idle;
                 return false;
