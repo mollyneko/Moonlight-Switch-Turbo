@@ -2,6 +2,7 @@
 #include "AVFrameHolder.hpp"
 #include "FFmpegVideoDecoderPlatformHelpers.hpp"
 #include "Settings.hpp"
+#include "SwitchThreadPlacement.hpp"
 #include "borealis.hpp"
 #include "MoonlightSession.hpp"
 
@@ -710,6 +711,18 @@ void FFmpegVideoDecoder::cleanup() {
 }
 
 int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
+    // moonlight-common-c calls this from its "VideoDec" thread. Moving that
+    // thread off the render loop's core keeps decode bursts from stealing the
+    // UI thread's timeslice, which is what shows up as frame-time jitter.
+    // Idempotent: only the first frame pays for the syscall.
+    if (switch_thread::placeCurrentThread(switch_thread::kCoreVideoDecode,
+                                          switch_thread::kPriorityVideoDecode)) {
+        brls::Logger::info(
+            "FFmpeg: VideoDec thread pinned to core ordinal {} at priority 0x{:X}",
+            switch_thread::kCoreVideoDecode,
+            switch_thread::kPriorityVideoDecode);
+    }
+
     if (decode_unit->fullLength < DECODER_BUFFER_SIZE) {
         PLENTRY entry = decode_unit->bufferList;
 

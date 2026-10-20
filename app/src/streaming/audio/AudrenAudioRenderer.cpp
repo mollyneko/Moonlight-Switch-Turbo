@@ -3,6 +3,7 @@
 #include "AudrenAudioRenderer.hpp"
 #include <Limelight.h>
 #include <Settings.hpp>
+#include <SwitchThreadPlacement.hpp>
 #include <borealis.hpp>
 #include <algorithm>
 #include <climits>
@@ -155,6 +156,16 @@ void AudrenAudioRenderer::cleanup() {
 }
 
 void AudrenAudioRenderer::decode_and_play_sample(char* data, int length) {
+    // moonlight-common-c calls this from its "AudioDec" thread. Audio underruns
+    // are far more audible than a dropped video frame, so this thread gets its
+    // own core and a priority just above the UI loop.
+    if (switch_thread::placeCurrentThread(switch_thread::kCoreAudio,
+                                          switch_thread::kPriorityAudio)) {
+        brls::Logger::info(
+            "Audren: AudioDec thread pinned to core ordinal {} at priority 0x{:X}",
+            switch_thread::kCoreAudio, switch_thread::kPriorityAudio);
+    }
+
     if (m_decoder && m_decoded_buffer) {
         if (data != NULL && length > 0) {
             // Queuing more audio while we are already behind the host's timeline
