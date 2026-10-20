@@ -127,13 +127,11 @@ class AVFrameHolder : public Singleton<AVFrameHolder> {
   public:
     void push(AVFrame* frame) {
         pushedTotal.fetch_add(1, std::memory_order_relaxed);
-        lastPushNs.store(nowNs(), std::memory_order_relaxed);
         m_frame_queue.push(frame);
     }
 
     void pushTransferred(AVFrame* frame) {
         pushedTotal.fetch_add(1, std::memory_order_relaxed);
-        lastPushNs.store(nowNs(), std::memory_order_relaxed);
         m_frame_queue.pushTransferred(frame);
     }
 
@@ -143,21 +141,6 @@ class AVFrameHolder : public Singleton<AVFrameHolder> {
     // decoder is actually running again.
     [[nodiscard]] uint64_t getPushedTotal() const {
         return pushedTotal.load(std::memory_order_relaxed);
-    }
-
-    // Time of the last push on the same clock the recovery flow uses. The
-    // counter alone cannot tell a live stream from the tail of the packets that
-    // were already queued before the console slept: waking up drains those into
-    // a short burst and then goes quiet. Continuity, not content, is what
-    // separates the two, and this timestamp is the cheap way to measure it.
-    [[nodiscard]] int64_t getLastPushNs() const {
-        return lastPushNs.load(std::memory_order_relaxed);
-    }
-
-    static int64_t nowNs() {
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(
-                   std::chrono::steady_clock::now().time_since_epoch())
-            .count();
     }
 
     // Deliberately a template rather than std::function: the renderer's lambda
@@ -212,6 +195,5 @@ class AVFrameHolder : public Singleton<AVFrameHolder> {
   private:
     // Written by the decode thread, read by the UI thread.
     std::atomic<uint64_t> pushedTotal{0};
-    std::atomic<int64_t> lastPushNs{0};
     AVFrameQueue m_frame_queue;
 };
