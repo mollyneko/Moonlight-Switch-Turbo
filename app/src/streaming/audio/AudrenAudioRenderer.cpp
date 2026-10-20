@@ -157,8 +157,8 @@ void AudrenAudioRenderer::cleanup() {
 
 void AudrenAudioRenderer::decode_and_play_sample(char* data, int length) {
     // moonlight-common-c calls this from its "AudioDec" thread. Audio underruns
-    // are far more audible than a dropped video frame, so this thread gets its
-    // own core and a priority just above the UI loop.
+    // are far more audible than a dropped video frame, so this thread gets the
+    // same priority as the UI loop and a core of its own.
     if (switch_thread::placeCurrentThread(switch_thread::kCoreAudio,
                                           switch_thread::kPriorityAudio)) {
         brls::Logger::info(

@@ -19,18 +19,24 @@ namespace switch_thread {
 
 // Move the calling thread onto the ordinal-th core this process is allowed to
 // use, then apply a priority. Safe to call repeatedly: the first successful
-// call wins and later ones are no-ops. A failure (for example a core the applet
-// does not expose) is ignored so a restrictive mask can never take the stream
-// down.
+// call wins and later ones are no-ops.
 //
-// Returns true only for the call that actually performed the placement, so the
-// caller can log it once.
+// Returns true only for the call that actually performed the placement. Every
+// failure path (an unrestricted syscall, a core the applet does not expose, a
+// rejected priority) returns false without touching the thread, so callers can
+// treat false as "thread left alone" and simply skip their log line.
 bool placeCurrentThread(int coreOrdinal, int priority);
 
-// libnx priorities: numerically lower runs first. The UI thread is 0x20, so
-// audio sits just above it and decoding shares its level. The defaults from
-// pthread_create are 0x2C.
-constexpr int kPriorityAudio = 0x1E;
+// libnx priorities: numerically lower runs first. The defaults from
+// pthread_create are 0x2C, so both of these are a one-step promotion towards
+// the UI thread at 0x20, and neither may go below it.
+//
+// 0x1E used to be here for audio ("just above the UI loop"), but a normal
+// process only gets 0x20..0x3F: anything smaller lands in the range the system
+// keeps for itself. Since pinning was live between 1.5.14 and 1.5.17, that
+// value is a standing suspect for the console dying at stream start, so it is
+// gone rather than merely unused.
+constexpr int kPriorityAudio = 0x20;
 constexpr int kPriorityVideoDecode = 0x20;
 constexpr int kPriorityBackground = 0x28;
 
