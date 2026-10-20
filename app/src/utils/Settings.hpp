@@ -22,6 +22,13 @@ enum AudioBackend : int {
 
 enum KeyboardType : int { COMPACT, FULLSIZED };
 
+// Which virtual pad the host is asked to emulate. This is sent in the
+// controller arrival event: a client that reports "unknown" leaves Sunshine
+// guessing from the declared capabilities, and a declared gyroscope makes it
+// pick a DualShock. Xbox mode drops the motion capabilities, because an X360
+// pad has no gyro and claiming one only confuses the host.
+enum ControllerMode : int { CONTROLLER_PS, CONTROLLER_XBOX };
+
 enum class ButtonOverrideType : int { NONE, SCREENSHOT, HOME };
 
 struct KeyMappingLayout {
@@ -256,6 +263,9 @@ class Settings : public Singleton<Settings> {
     void set_swap_joycon_stick_to_dpad(bool value) { m_swap_joycon_stick_to_dpad = value; }
     [[nodiscard]] bool swap_joycon_stick_to_dpad() const { return m_swap_joycon_stick_to_dpad; }
 
+    void set_controller_mode(ControllerMode mode) { m_controller_mode = mode; }
+    [[nodiscard]] ControllerMode controller_mode() const { return m_controller_mode; }
+
     void set_swap_mouse_keys(bool swap_mouse_keys) { m_swap_mouse_keys = swap_mouse_keys; }
     [[nodiscard]] bool touchscreen_mouse_mode() const { return m_touchscreen_mouse_mode; }
 
@@ -370,6 +380,9 @@ class Settings : public Singleton<Settings> {
     bool m_log_to_file = false;
     bool m_swap_ui_keys = false;
     bool m_swap_joycon_stick_to_dpad = false;
+    // PlayStation by default: that is what the host was already emulating for
+    // this client, since a declared gyroscope makes Sunshine pick a DualShock.
+    ControllerMode m_controller_mode = CONTROLLER_PS;
     bool m_touchscreen_mouse_mode = false;
     bool m_swap_mouse_keys = false;
     bool m_swap_mouse_scroll = false;

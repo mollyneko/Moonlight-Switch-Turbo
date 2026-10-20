@@ -94,6 +94,9 @@
             <brls:DetailCell
                 id="swap_game"/>
 
+            <brls:SelectorCell
+                id="controller_mode"/>
+
             <brls:Header
                     title="@i18n/settings/deadzone/title"
                     paddingTop="60"/>

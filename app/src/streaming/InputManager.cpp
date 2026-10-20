@@ -71,6 +71,10 @@ MoonlightInputManager::MoonlightInputManager() {
         ->getControllerSensorStateChanged()
         ->subscribe([this](brls::SensorEvent event) {
             if (!inputEnabled) return;
+            // The host is emulating an X360 pad in Xbox mode, which has no
+            // motion sensors. Sending anyway only burns packets on events the
+            // host will drop.
+            if (Settings::instance().controller_mode() == CONTROLLER_XBOX) return;
             
             switch (event.type) {
                 case brls::SensorEventType::ACCEL:
@@ -400,6 +404,7 @@ GamepadState MoonlightInputManager::getControllerState(int controllerNum,
 
 void MoonlightInputManager::handleControllers(bool specialKey) {
     static int lastControllerCount = 0;
+    static ControllerMode lastAnnouncedMode = CONTROLLER_PS;
 
     auto controllersCount = brls::Application::getPlatform()
                             ->getInputManager()
@@ -412,20 +417,35 @@ void MoonlightInputManager::handleControllers(bool specialKey) {
 
     short mappedControllersCount = controllersToMap();
 
+    // Announce the pad when the connection count changes and whenever the user
+    // flips the emulated type, so a switch made mid-session reaches the host
+    // without reconnecting. This used to sit inside the state-change check
+    // below, which meant a pad that never changed state was never announced.
+    const ControllerMode mode = Settings::instance().controller_mode();
+    if (lastControllerCount != controllersCount || lastAnnouncedMode != mode) {
+        lastControllerCount = controllersCount;
+        lastAnnouncedMode = mode;
+
+        const uint8_t type = mode == CONTROLLER_XBOX ? LI_CTYPE_XBOX : LI_CTYPE_PS;
+        // An X360 pad has no gyroscope or accelerometer. Claiming them would
+        // make the host advertise motion controls that never report anything.
+        const uint16_t capabilities =
+            static_cast<uint16_t>(mode == CONTROLLER_XBOX
+                                      ? LI_CCAP_RUMBLE
+                                      : (LI_CCAP_RUMBLE | LI_CCAP_ACCEL | LI_CCAP_GYRO));
+
+        for (int i = 0; i < controllersCount; i++) {
+            Logger::debug("StreamingView: send features message for controller #{} (mode={})",
+                         i, type);
+            LiSendControllerArrivalEvent(i, mappedControllersCount, type, 0, capabilities);
+        }
+    }
+
     for (int i = 0; i < controllersCount; i++) {
         GamepadState gamepadState = getControllerState(i, specialKey);
 
         if (!gamepadState.is_equal(lastGamepadStates[i])) {
             lastGamepadStates[i] = gamepadState;
-
-            if (lastControllerCount != controllersCount) {
-                lastControllerCount = controllersCount;
-                
-                for (int i = 0; i < controllersCount; i++) {
-                    Logger::debug("StreamingView: send features message for controller #{}", i);
-                    LiSendControllerArrivalEvent(i, mappedControllersCount, LI_CTYPE_UNKNOWN, 0, LI_CCAP_RUMBLE | LI_CCAP_ACCEL | LI_CCAP_GYRO);
-                }
-            }
 
             if (LiSendMultiControllerEvent(
                     i, mappedControllersCount, gamepadState.buttonFlags,

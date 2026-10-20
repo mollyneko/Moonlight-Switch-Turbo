@@ -338,6 +338,14 @@ void Settings::load() {
                 m_swap_joycon_stick_to_dpad = json_typeof(swap_joycon_stick_to_dpad) == JSON_TRUE;
             }
 
+            if (json_t* controller_mode = json_object_get(settings, "controller_mode")) {
+                if (json_typeof(controller_mode) == JSON_STRING) {
+                    m_controller_mode = std::string(json_string_value(controller_mode)) == "xbox"
+                                                ? CONTROLLER_XBOX
+                                                : CONTROLLER_PS;
+                }
+            }
+
             if (json_t* touchscreen_mouse_mode = json_object_get(settings, "touchscreen_mouse_mode")) {
                 m_touchscreen_mouse_mode = json_typeof(touchscreen_mouse_mode) == JSON_TRUE;
             }
@@ -553,6 +561,8 @@ void Settings::save() {
             json_object_set_new(settings, "log_to_file", m_log_to_file ? json_true() : json_false());
             json_object_set_new(settings, "swap_ui_keys", m_swap_ui_keys ? json_true() : json_false());
             json_object_set_new(settings, "swap_joycon_stick_to_dpad", m_swap_joycon_stick_to_dpad ? json_true() : json_false());
+            json_object_set_new(settings, "controller_mode",
+                                json_string(m_controller_mode == CONTROLLER_XBOX ? "xbox" : "ps"));
             json_object_set_new(settings, "touchscreen_mouse_mode", m_touchscreen_mouse_mode ? json_true() : json_false());
             json_object_set_new(settings, "swap_mouse_keys", m_swap_mouse_keys ? json_true() : json_false());
             json_object_set_new(settings, "swap_mouse_scroll", m_swap_mouse_scroll ? json_true() : json_false());

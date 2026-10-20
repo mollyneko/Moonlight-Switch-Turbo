@@ -571,6 +571,18 @@ SettingsTab::SettingsTab() {
     swapStickToDpad->init("settings/swap_stick_to_dpad"_i18n, Settings::instance().swap_joycon_stick_to_dpad(),
                           [](bool value) { Settings::instance().set_swap_joycon_stick_to_dpad(value); });
 
+    std::vector<std::string> controllerModes = {
+        "settings/controller_mode_playstation"_i18n,
+        "settings/controller_mode_xbox"_i18n};
+    controllerMode->setText("settings/controller_mode"_i18n);
+    controllerMode->setData(controllerModes);
+    controllerMode->setSelection(
+        Settings::instance().controller_mode() == CONTROLLER_XBOX ? 1 : 0);
+    controllerMode->getEvent()->subscribe([](int selected) {
+        Settings::instance().set_controller_mode(selected == 1 ? CONTROLLER_XBOX
+                                                               : CONTROLLER_PS);
+    });
+
     guideKeyButtons->setText("settings/guide_key_buttons"_i18n);
     setupButtonsSelectorCell(guideKeyButtons,
                              Settings::instance().guide_key_options().buttons);
