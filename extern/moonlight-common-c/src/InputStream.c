@@ -23,6 +23,12 @@ static float absCurrentPosY;
 
 static uint8_t currentPenButtonState;
 
+// Last button flags sent for each controller. Used to tell a discrete button
+// transition (which must arrive) from continuous axis movement (which can be
+// dropped and replaced by the next frame). Zero matches the host's initial
+// all-released state, so the first real press always counts as a change.
+static uint32_t lastButtonFlags[MAX_GAMEPADS];
+
 #define CLAMP(val, min, max) (((val) < (min)) ? (min) : (((val) > (max)) ? (max) : (val)))
 
 #define MAX_INPUT_PACKET_SIZE 128
@@ -1072,8 +1078,22 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         // Send each controller on a separate channel
         holder->channelId = CTRL_CHANNEL_GAMEPAD_BASE + controllerNumber;
 
-        // TODO: Send this as unreliable sequenced when we have a delayed reliable retransmission thread
-        holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
+        // A button transition must arrive: the pad only transmits when something
+        // changes, so a lost "released" packet leaves the host holding that key
+        // until the player moves again. Stick and trigger values ride in the same
+        // full-state packet and change every frame, so a lost one is replaced by
+        // the next. Axes-only packets therefore go unreliable, which also keeps
+        // this thread out of the reliable-packet backpressure loop in
+        // ControlStream.c. The batching above tears the packet down whenever
+        // buttonFlags changes, so unchanged flags here means axes only.
+        //
+        // GFE is unaffected: sendMessageEnet() forces every packet back to
+        // reliable when the host is not Sunshine.
+        const uint32_t buttonFlagsNow = (uint32_t)buttonFlags;
+        const bool buttonsChanged =
+            buttonFlagsNow != lastButtonFlags[controllerNumber];
+        lastButtonFlags[controllerNumber] = buttonFlagsNow;
+        holder->enetPacketFlags = buttonsChanged ? ENET_PACKET_FLAG_RELIABLE : 0;
 
         // Remember that we need to enqueue this holder since it's new
         enqueueHolder = true;
