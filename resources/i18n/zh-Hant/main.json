@@ -169,7 +169,7 @@
         "controller_mode_xbox": "Xbox",
         "swap_ui": "在主畫面中對調/和/按鍵",
         "system_button_duplication_error": "Another action already use this system button.",
-        "touchscreen_mouse_mode": "觸摸屏模式",
+        "touchscreen_mouse_mode": "觸摸屏模式（關＝手指當滑鼠）",
         "use_hw_decoding": "啟用硬體加速",
         "use_system_button": "Use system button",
         "usops": "使用串流最佳化設定",
@@ -180,6 +180,7 @@
     },
     "streaming": {
         "connection": "連接選項",
+        "touchscreen_mode_hint": "觸摸屏模式已開啟：手指不會控制滑鼠，請在設定裡關閉它",
         "debug_info": "除錯訊息",
         "disconnect": "斷開連接",
         "esc": "ESC按鍵",
