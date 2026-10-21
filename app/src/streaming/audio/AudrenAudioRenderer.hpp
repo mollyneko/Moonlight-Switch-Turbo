@@ -1,11 +1,24 @@
 #ifdef __SWITCH__
 
 #include "IAudioRenderer.hpp"
+#include <cstdint>
 #include <opus/opus_multistream.h>
 #include <switch.h>
 #pragma once
 
 #define BUFFER_COUNT 5
+
+// Everything that can make audio discontinuous, counted where it happens.
+//
+// A dropped 5 ms Opus frame is not silence in the middle of a waveform, it is a
+// splice: the samples on either side of it were never meant to be adjacent, so
+// the speaker cone gets a step edge. Reported as crackle/sizzle rather than as
+// a gap, which is why it took a counter to see it.
+struct AudioDropStats {
+    uint32_t queued_full;   // write_audio() refused a frame: pool over its cap
+    uint32_t pending_old;   // decode skipped a frame: too far behind the host
+    uint32_t starved;       // pool ran dry before the next frame arrived
+};
 
 class AudrenAudioRenderer : public IAudioRenderer {
   public:
@@ -18,6 +31,10 @@ class AudrenAudioRenderer : public IAudioRenderer {
     void cleanup() override;
     void decode_and_play_sample(char* sample_data, int sample_length) override;
     int capabilities() override;
+
+    // Reads and clears the counters above. Safe to call from any thread; the
+    // counters are per-session and reset by init().
+    static AudioDropStats takeDropStats();
 
   private:
     ssize_t free_wavebuf_index();

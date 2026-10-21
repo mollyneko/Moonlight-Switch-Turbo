@@ -6,6 +6,10 @@
 #include "borealis.hpp"
 #include <string.h>
 
+#ifdef __SWITCH__
+#include "AudrenAudioRenderer.hpp"
+#endif
+
 #if defined(PLATFORM_IOS) || defined(PLATFORM_VISIONOS)
 extern void getWindowSize(int* w, int* h);
 #endif
@@ -519,6 +523,18 @@ void MoonlightSession::log_telemetry() {
         holder.getFrameQueueEstimatedSourceFps(),
         has_rtt ? rtt : 0, has_rtt ? "" : "(n/a)",
         m_connection_status_is_poor ? "yes" : "no");
+
+    // Audio has no frame queue of its own to watch, so a crackle used to look
+    // like a mystery: the video counters stayed healthy throughout. These are
+    // the three ways a 5 ms Opus frame can fail to reach the speaker intact,
+    // counted per second. queued_full/pending_old are drops (a splice in the
+    // waveform); starved means the renderer itself ran dry.
+#ifdef __SWITCH__
+    const AudioDropStats audio_drop = AudrenAudioRenderer::takeDropStats();
+    brls::Logger::info("AUDIO queued_full={} pending_old={} starved={}",
+                       audio_drop.queued_full, audio_drop.pending_old,
+                       audio_drop.starved);
+#endif
 
     brls::Logger::info(
         "LATENCY host_enc_ms={:.1f} net_oneway_ms={:.1f} queue_wait_ms={:.1f} "

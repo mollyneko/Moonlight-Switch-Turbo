@@ -6,6 +6,7 @@
 #include <SwitchThreadPlacement.hpp>
 #include <borealis.hpp>
 #include <algorithm>
+#include <atomic>
 #include <climits>
 #include <inttypes.h>
 #include <malloc.h>
@@ -19,7 +20,18 @@ namespace {
 
 // How many wave buffers (12.5 ms of audio each at 48 kHz) may sit in the audren
 // pool. Everything above that is lip-sync delay, not jitter cover.
-constexpr size_t kMaximumQueuedWaveBuffers = 2;
+//
+// This was 2 = 25 ms, which is only 1.5 video frames: a single slow SD write,
+// a log flush or a scheduler hiccup on the decode/render cores was enough to
+// run the pool dry, and the next frame that arrived was dropped whole - a
+// splice in the waveform, heard as crackle. 3 = 37.5 ms costs one extra 12.5 ms
+// of lip-sync delay and buys a full extra frame of cover, which is the part
+// that actually stops the crackle.
+constexpr size_t kMaximumQueuedWaveBuffers = 3;
+
+std::atomic<uint32_t> g_droppedQueuedFull { 0 };
+std::atomic<uint32_t> g_droppedPendingOld { 0 };
+std::atomic<uint32_t> g_starved { 0 };
 
 void applyVolume(s16* buffer, size_t sampleCount, int volume) {
     for (size_t i = 0; i < sampleCount; i++) {
@@ -122,6 +134,10 @@ int AudrenAudioRenderer::init(int audio_configuration,
 
     m_inited_driver = true;
 
+    g_droppedQueuedFull = 0;
+    g_droppedPendingOld = 0;
+    g_starved = 0;
+
     brls::Logger::info("Audren: Init done!");
 
     return DR_OK;
@@ -172,7 +188,12 @@ void AudrenAudioRenderer::decode_and_play_sample(char* data, int length) {
             // only adds lip-sync delay. Drop whole frames here rather than
             // letting write_audio() block, which is what used to keep the pool
             // permanently full and the audio permanently late.
+            //
+            // Counted: every drop is a splice between two samples that were
+            // never adjacent, so a steady trickle of these is audible even when
+            // the frame counts look healthy.
             if (LiGetPendingAudioDuration() > 30) {
+                g_droppedPendingOld++;
                 return;
             }
 
@@ -261,15 +282,29 @@ void AudrenAudioRenderer::write_audio(const void* buf, size_t size) {
 
     audrvUpdate(&m_driver);
 
-    size_t queued_samples = m_total_queued_samples -
-        audrvVoiceGetPlayedSampleCount(&m_driver, 0);
+    const size_t played_samples =
+        static_cast<size_t>(audrvVoiceGetPlayedSampleCount(&m_driver, 0));
+    const size_t queued_samples =
+        m_total_queued_samples > played_samples
+            ? m_total_queued_samples - played_samples
+            : 0;
+
+    // Nothing left in the pool while more audio is arriving means the renderer
+    // ran out and covered the gap itself. Counted here rather than inferred
+    // from audrvVoiceIsPlaying(), which stays true across a dry spell. The
+    // m_total_queued_samples check skips the very first frame, where zero
+    // queued simply means "nothing has been written yet".
+    if (queued_samples == 0 && m_total_queued_samples > 0)
+        g_starved++;
 
     // Bound the pool instead of blocking in it. The old 0.5 s threshold here
     // was unreachable because the loop below sat on the pool until a wave
     // buffer was free, so the queue stayed at its 62.5 ms maximum forever.
     if (queued_samples >
-        kMaximumQueuedWaveBuffers * static_cast<size_t>(m_samples))
+        kMaximumQueuedWaveBuffers * static_cast<size_t>(m_samples)) {
+        g_droppedQueuedFull++;
         return;
+    }
 
     size_t written = 0;
     while (written < size) {
@@ -282,6 +317,15 @@ void AudrenAudioRenderer::write_audio(const void* buf, size_t size) {
             audrenWaitFrame();
         }
     }
+}
+
+AudioDropStats AudrenAudioRenderer::takeDropStats() {
+    // exchange() rather than load()+store(0): the audio thread keeps counting
+    // while the telemetry line is being formatted, and a read-then-clear would
+    // lose whatever landed in between.
+    return AudioDropStats { g_droppedQueuedFull.exchange(0),
+                            g_droppedPendingOld.exchange(0),
+                            g_starved.exchange(0) };
 }
 
 #endif //__SWITCH__

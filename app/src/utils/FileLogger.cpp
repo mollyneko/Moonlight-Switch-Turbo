@@ -3,6 +3,10 @@
 #include "Settings.hpp"
 #include <borealis.hpp>
 
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -51,7 +55,14 @@ constexpr size_t kRingCapacity = 2048;
 // Flush cadence. Small enough that a crash or a HOME-menu teardown loses
 // almost nothing, large enough that the ring is almost always drained in one
 // go.
-constexpr auto kWriterInterval = std::chrono::milliseconds(200);
+//
+// This was 200 ms, which turned a 5 lines/s telemetry rate into five separate
+// FAT transactions per second. Each one is a blocking write to the SD card and
+// a metadata sync, and the cost lands on the whole system rather than on this
+// thread alone - which is why crackling audio shows up more readily with the SD
+// log switched on. 500 ms costs at most half a second of log on a crash and
+// cuts those transactions by 60%.
+constexpr auto kWriterInterval = std::chrono::milliseconds(500);
 
 // Repeated identical messages are collapsed into a single line per window.
 // Without this one misbehaving subsystem turns the log into a 350 line/s SD
@@ -179,6 +190,15 @@ int writeCallback(void* /*cookie*/, const char* buffer, size_t length) {
 }
 
 void writerLoop() {
+#ifdef __SWITCH__
+    // Deliberately the lowest priority a normal process can ask for. This
+    // thread only ever waits on the SD card; at the default priority it can
+    // still be scheduled ahead of the audio and decode threads on a core they
+    // share, and a blocked FAT write there is a dropped audio frame. Logging is
+    // allowed to lose lines, it is not allowed to cost a frame.
+    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x3F);
+#endif
+
     std::string batch;
 
     while (true) {
