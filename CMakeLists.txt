@@ -75,7 +75,7 @@ set(VERSION_BUILD "1")
 set(PACKAGE_NAME "ru.xitrix.Moonlight")
 set(PSN_TITLE_ID  "MNTL00000")
 set(PSN_VERSION  "01.00")
-set(PROJECT_AUTHOR "XITRIX")
+set(PROJECT_AUTHOR "mollyneko")
 set(PROJECT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/resources/img/moonlight_icon.jpg)
 set(PROJECT_RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 
