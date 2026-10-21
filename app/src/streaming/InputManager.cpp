@@ -25,6 +25,25 @@ float applyStickScrollDeadzone(float axis, float configuredDeadzone) {
     float deadzone = std::fmax(STICK_SCROLL_DEADZONE, configuredDeadzone);
     return std::fabs(axis) < deadzone ? 0.f : axis;
 }
+
+// GamepadState::is_equal() compares the sticks exactly, but a stick resting
+// under a thumb still jitters by tens of raw units every frame. Each "change"
+// used to cost a LiSendMultiControllerEvent() call, and on a host without
+// Sunshine support that is a reliable ENET packet with a ~10 ms polling wait
+// inside moonlight-common-c. Rounding to a 256-step grid (8 bits, which is the
+// precision an Xbox pad reports anyway) turns that jitter into "nothing moved",
+// and is far below what a thumb can feel. The rounding is symmetric around
+// zero so that -N and +N quantize to the same magnitude.
+short quantizeStickAxis(short value) {
+    constexpr int kMaxStickValue = 0x7FFF;
+
+    int magnitude = value < 0 ? -static_cast<int>(value) : value;
+    // Nearest multiple of 256, clamped because 0x7FFF rounds up past the
+    // largest value a short can hold.
+    magnitude = std::min(kMaxStickValue, (magnitude + 0x80) & ~0xFF);
+
+    return static_cast<short>(value < 0 ? -magnitude : magnitude);
+}
 }
 
 MoonlightInputManager::MoonlightInputManager() {
@@ -340,14 +359,14 @@ GamepadState MoonlightInputManager::getControllerState(int controllerNum,
             0xFF * (!specialKey ? lzAxis : 0)),
         .rightTrigger = static_cast<unsigned char>(
             0xFF * (!specialKey ? rzAxis : 0)),
-        .leftStickX = static_cast<short>(
-            0x7FFF * (!specialKey ? leftXAxis : 0)),
-        .leftStickY = static_cast<short>(
-            -0x7FFF * (!specialKey ? leftYAxis : 0)),
-        .rightStickX = static_cast<short>(
-            0x7FFF * (!specialKey ? rightXAxis : 0)),
-        .rightStickY = static_cast<short>(
-            -0x7FFF * (!specialKey ? rightYAxis : 0)),
+        .leftStickX = quantizeStickAxis(static_cast<short>(
+            0x7FFF * (!specialKey ? leftXAxis : 0))),
+        .leftStickY = quantizeStickAxis(static_cast<short>(
+            -0x7FFF * (!specialKey ? leftYAxis : 0))),
+        .rightStickX = quantizeStickAxis(static_cast<short>(
+            0x7FFF * (!specialKey ? rightXAxis : 0))),
+        .rightStickY = quantizeStickAxis(static_cast<short>(
+            -0x7FFF * (!specialKey ? rightYAxis : 0))),
     };
 
     brls::ControllerButton a = brls::BUTTON_A;
