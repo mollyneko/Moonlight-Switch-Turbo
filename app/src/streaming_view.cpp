@@ -82,6 +82,17 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
 
     session = new MoonlightSession(host.preferred_address(), app.app_id);
 
+    // Subscribed once, here, and not from onFocusGained(). That runs every time
+    // this view regains focus, including when an overlay closes, so subscribing
+    // there added one callback per focus cycle while the destructor only ever
+    // removes one. The leftovers stayed attached to a global event pointing at
+    // freed memory and fired after the view was gone.
+    windowFocusSubscription =
+        brls::Application::getWindowFocusChangedEvent()->subscribe(
+            [this](bool focused) { this->onWindowFocusChanged(focused); });
+    brls::Logger::info("StreamingView: focus subscriptions held = {}",
+                       ++focusSubscriptionCount);
+
 #ifdef PLATFORM_TVOS
         updatePreferredDisplayMode(true);
 #endif
@@ -291,32 +302,49 @@ void StreamingView::onFocusLost() {
 
 void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
                          float height, Style style, FrameContext* ctx) {
+    if (pendingSuspendTerminate) {
+        // Focus was lost: the console is sleeping, or the HOME menu took over.
+        // Tearing down here rather than inside the event callback keeps the
+        // subscription list being iterated out of harm's way. Depending on
+        // whether the main loop keeps running while the console sleeps, this
+        // lands either right at the suspend or on the first frame after
+        // waking; both are before anything new is submitted to NVDEC, which is
+        // what #306 needs.
+        pendingSuspendTerminate = false;
+        brls::Logger::info("StreamingView: ending the stream after losing focus");
+        terminate(false);
+        return;
+    }
+
     if (session->is_terminated()) {
         terminate(false);
         return;
     }
 
-    // A sleep/wake cycle leaves the sockets, NVDEC and the GPU channel in a
-    // state nobody told this process about. Streaming on top of them is what
-    // wedges the console when the app is closed later, so rebuild the session
-    // instead of continuing. Same suspension heuristic AVFrameHolder uses:
-    // while the app actually runs, no two frames are a whole second apart.
+    // Fallback for a wake we were not told about: if the focus event somehow
+    // never arrived, a multi-second gap between frames still means the console
+    // was suspended. Same heuristic AVFrameHolder uses, since while the app
+    // actually runs no two frames are a whole second apart.
+    //
+    // This used to rebuild the session, which is the one thing that must not
+    // happen here: renegotiating and re-opening NVDEC and audren in a process
+    // that just woke up is where #306 hangs the console. Ending the stream is
+    // what the focus path does, so both paths now agree.
     //
     // A real suspend is many seconds long, so the threshold sits well above the
     // longest hiccup a streaming frame can suffer. At one second a single slow
-    // SD write was enough to tear the whole session down and renegotiate it,
-    // which is a far worse experience than simply dropping the frames that
-    // were missed.
+    // SD write was enough to tear the whole session down, which is a far worse
+    // experience than simply dropping the frames that were missed.
     const auto now = std::chrono::steady_clock::now();
     const auto sinceLastDraw = now - lastDrawTime;
     lastDrawTime = now;
     if (sinceLastDraw > std::chrono::seconds(3)) {
         brls::Logger::info(
-            "StreamingView: drew {}ms after the previous frame, restarting the "
-            "session",
+            "StreamingView: drew {}ms after the previous frame, ending the "
+            "stream instead of rebuilding it",
             std::chrono::duration_cast<std::chrono::milliseconds>(sinceLastDraw)
                 .count());
-        session->restart();
+        terminate(false);
         return;
     }
 
@@ -472,6 +500,25 @@ void StreamingView::removeKeyboard() {
     keyboard->removeFromSuperView();
     keyboard = nullptr;
     Application::giveFocus(this);
+}
+
+int StreamingView::focusSubscriptionCount = 0;
+
+void StreamingView::onWindowFocusChanged(bool focused) {
+    if (focused || terminated)
+        return;
+
+    // Nothing destructive here on purpose: this runs inside Event<bool>::fire,
+    // which is iterating the callback list terminate() would unsubscribe from.
+    // Record the intent; draw() acts on it.
+    brls::Logger::info("StreamingView: focus lost, will end the stream");
+
+    // Disable before dropping. dropInput() sends release events, and with input
+    // still enabled every later input path keeps queueing onto a connection
+    // that is going away.
+    MoonlightInputManager::instance().setInputEnabled(false);
+    MoonlightInputManager::instance().dropInput();
+    pendingSuspendTerminate = true;
 }
 
 void StreamingView::terminate(bool terminateApp) {
@@ -668,6 +715,10 @@ StreamingView::~StreamingView() {
         ->getInputManager()
         ->getKeyboardKeyStateChanged()
         ->unsubscribe(keysSubscription);
+    Application::getWindowFocusChangedEvent()->unsubscribe(
+        windowFocusSubscription);
+    brls::Logger::info("StreamingView: focus subscriptions held = {}",
+                       --focusSubscriptionCount);
     session->stop(false);
     delete session;
 }
