@@ -18,7 +18,7 @@ adds on top of the host.
 | **Video** — queue residency | age of the frame on screen | 1.00 frame · 16.7 ms | 0.00 frame · **0 ms** | −16.7 ms |
 | **Input** — sampling wait (mean) | age of the button press | 0.50 frame · 8.3 ms | 0.25 frame · **4.2 ms** | −4.2 ms |
 | **Video + input** | what the client adds end to end | 1.50 frame · **25.0 ms** | 0.25 frame · **4.2 ms** | **−20.8 ms (−83%)** |
-| **Audio** — playout depth | lip-sync offset | 5 × 12.5 ms · **62.5 ms** | 2 × 12.5 ms · **25.0 ms** | −37.5 ms |
+| **Audio** — playout depth | lip-sync offset | 5 × 12.5 ms · **62.5 ms** | 3 × 12.5 ms · **37.5 ms** | −25.0 ms |
 
 Audio is a separate path: it bounds how far the sound trails the picture, not how old the frame is, so it is not
 part of the 25.0 → 4.2 ms total.
@@ -29,7 +29,7 @@ part of the 25.0 → 4.2 ms total.
 
 ### Video path — decode → frame queue → post-process → present
 
-| Change | 1.5.0 | 1.5.17 | Effect |
+| Change | 1.5.0 | 1.5.18 | Effect |
 |:---|:---|:---|:---|
 | Queue residency | fixed reserve `min(depth − 1, 2)` for the whole session — 1 frame at the default | adaptive: starts at the same value, released to **0 frames** after 5 s of clean play | −16.7 ms of display age |
 | Reserve recovery | the whole reserve is rebuilt after every ordinary miss, in freeze-and-catch-up cycles | one frame handed back per 5 s clean; an underrun restores it and doubles the wait (capped at 60 s) | no periodic stutter |
@@ -42,7 +42,7 @@ part of the 25.0 → 4.2 ms total.
 Only two of these move a number; the rest keep the pipeline from stalling. Residency still depends on what the
 frame queue setting is, and a deeper queue costs more:
 
-| Frame queue setting | 1.5.0 residency | 1.5.17 residency (steady) |
+| Frame queue setting | 1.5.0 residency | 1.5.18 residency (steady) |
 |:---|---:|---:|
 | 1 | 0 ms | 0 ms |
 | 2 (default) | 16.7 ms | **0 ms** |
@@ -53,18 +53,23 @@ surfaces silently during a burst.
 
 ### Audio path — Opus decode → wave buffers → audren
 
-| Change | 1.5.0 | 1.5.17 | Effect |
+| Change | 1.5.0 | 1.5.18 | Effect |
 |:---|:---|:---|:---|
-| Pool cap | 5 wave buffers, whatever the pool held | **2** (`kMaximumQueuedWaveBuffers`); the allocation stays at 5 | 62.5 → 25.0 ms |
+| Pool cap | 5 wave buffers, whatever the pool held | **3** (`kMaximumQueuedWaveBuffers`); the allocation stays at 5 | 62.5 → 37.5 ms |
 | Backpressure | `write_audio()` blocks when the pool is full, so it was permanently full | whole frames dropped once `LiGetPendingAudioDuration() > 30` ms | the cap is real, not nominal |
 | Drift correction | drop a buffer every 400 calls, behind a 0.5 s desync guard that the blocking write made unreachable | both removed — nothing left to correct | no periodic click |
 | Frame and mix | 12.5 ms Opus frame, 2 mix buffers, 24 voices | identical | fixed cost, not counted |
 
 A dropped frame is a single click; the old behaviour was 62.5 ms of lip-sync error for the entire session.
 
+1.5.18 spends 12.5 ms of that back: the third buffer raises the ceiling to 37.5 ms, which is 2.25 video
+frames instead of 1.5. That is what stops the drop from happening rather than making it quieter, and both
+drop paths are now counted (`AUDIO queued_full=.. pending_old=.. starved=..`) so a report can say which one
+is firing.
+
 ### Input path — poll → map → diff → UDP
 
-| Change | 1.5.0 | 1.5.17 | Effect |
+| Change | 1.5.0 | 1.5.18 | Effect |
 |:---|:---|:---|:---|
 | Sample rate | 1 per frame — 16.7 ms interval | **2 per frame** (gamepad only) — 8.3 ms interval | 8.3 → 4.2 ms mean wait |
 | Sample position | after the render pass is submitted, so the packet waited a whole pass | **before** it; the second sample is the last work before present | send delay ≈ 0 |
@@ -124,7 +129,7 @@ one frame = 16.7 ms, 60 Hz
  input                                                     [sample] -> send
          ^ press anywhere here waits up to a full frame
 
-1.5.17
+1.5.18
  input  [sample] -> send                                     [sample] -> send
  video  |---------- render + submit ----------|
         | queue floor: 0 frames |                          (0 ms of age)
@@ -133,7 +138,7 @@ one frame = 16.7 ms, 60 Hz
 
 ### Combined client-side budget
 
-| Term | 1.5.0 | 1.5.17 |
+| Term | 1.5.0 | 1.5.18 |
 |:---|---:|---:|
 | Video residency | 16.7 ms | 0 ms |
 | Input sampling wait | 8.3 ms | 4.2 ms |
@@ -142,7 +147,7 @@ one frame = 16.7 ms, 60 Hz
 At 30 fps the frame period doubles and both terms double with it; at 120 fps they halve. The Switch outputs
 60 Hz in handheld and docked, which is what the client advertises (`clientRefreshRateX100 = 6000`).
 
-| Refresh rate | Frame period | 1.5.0 | 1.5.17 | Change |
+| Refresh rate | Frame period | 1.5.0 | 1.5.18 | Change |
 |:---|---:|---:|---:|---:|
 | 30 fps | 33.3 ms | 50.0 ms | **8.3 ms** | −41.7 ms |
 | 60 fps | 16.7 ms | 25.0 ms | **4.2 ms** | −20.8 ms |
@@ -167,10 +172,10 @@ T_audio      = max queued wave buffers x 12.5 ms    -> lip-sync offset, separate
          total                               25.00 ms
          audio  5 x 12.5                   = 62.50 ms
 
-1.5.17   video  0 x 16.67                   =  0.00
+1.5.18   video  0 x 16.67                   =  0.00
          input  16.67 / 2 / 2              =  4.17
          total                                4.17 ms
-         audio  2 x 12.5                   = 25.00 ms
+         audio  3 x 12.5                   = 37.50 ms
 ```
 
 The values in the tables are rounded to one decimal; the 4.2 ms figure is 4.17.

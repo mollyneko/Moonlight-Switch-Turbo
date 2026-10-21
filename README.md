@@ -11,14 +11,15 @@ client-side latency.
 ## Latency: 1.5.0 → 1.5.18
 
 Client-added latency at 60 fps, derived from code parameters. Network and host encode are excluded.
-1.5.14 through 1.5.18 changed nothing on these paths.
+1.5.14 through 1.5.18 changed nothing on the video and input paths. The audio pool gained one buffer in
+1.5.18: 12.5 ms more lip-sync, in exchange for a full frame of cover against crackle.
 
 | | 1.5.0 | 1.5.18 | Change |
 |:---|---:|---:|---:|
 | **Video** — age of the frame on screen | 1 frame · 16.7 ms | **0 frames · 0 ms** | −16.7 ms |
 | **Input** — age of the button press | 8.3 ms | **4.2 ms** | −4.2 ms |
 | **Total** | **25.0 ms** | **4.2 ms** | **−20.8 ms (−83%)** |
-| **Audio** — lip-sync offset | 62.5 ms | **25.0 ms** | −37.5 ms |
+| **Audio** — lip-sync offset | 62.5 ms | **37.5 ms** | −25.0 ms |
 
 Full derivation, per path: [docs/latency.md](docs/latency.md).
 
@@ -46,7 +47,7 @@ Full derivation, per path: [docs/latency.md](docs/latency.md).
 | 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed |
 | 1.5.16 | Controller mode switch: PlayStation (default) or Xbox |
 | 1.5.17 | Gamepad packets unreliable unless buttons changed; decode thread placement withdrawn |
-| 1.5.18 | Touch panel activated; touch and mouse events reach the host again (current) |
+| 1.5.18 | Touch panel activated; touch and mouse events reach the host again; one more audio buffer, drops counted (current) |
 
 ## Install
 
