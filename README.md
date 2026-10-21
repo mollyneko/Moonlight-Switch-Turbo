@@ -8,13 +8,13 @@ client-side latency.
 
 ---
 
-## Latency: 1.5.0 → 1.5.18
+## Latency: 1.5.0 → 1.5.19
 
 Client-added latency at 60 fps, derived from code parameters. Network and host encode are excluded.
-1.5.14 through 1.5.18 changed nothing on the video and input paths. The audio pool gained one buffer in
+1.5.14 through 1.5.19 changed nothing on the video and input paths. The audio pool gained one buffer in
 1.5.18: 12.5 ms more lip-sync, in exchange for a full frame of cover against crackle.
 
-| | 1.5.0 | 1.5.18 | Change |
+| | 1.5.0 | 1.5.19 | Change |
 |:---|---:|---:|---:|
 | **Video** — age of the frame on screen | 1 frame · 16.7 ms | **0 frames · 0 ms** | −16.7 ms |
 | **Input** — age of the button press | 8.3 ms | **4.2 ms** | −4.2 ms |
@@ -47,7 +47,8 @@ Full derivation, per path: [docs/latency.md](docs/latency.md).
 | 1.5.15 | Second gamepad sample made gamepad-only; dead bottom-bar timer removed |
 | 1.5.16 | Controller mode switch: PlayStation (default) or Xbox |
 | 1.5.17 | Gamepad packets unreliable unless buttons changed; decode thread placement withdrawn |
-| 1.5.18 | Touch panel activated; touch and mouse events reach the host again; one more audio buffer, drops counted (current) |
+| 1.5.18 | Touch panel activated; touch and mouse events reach the host again; one more audio buffer, drops counted |
+| 1.5.19 | Sleeping no longer hangs the console: the stream ends instead of being rebuilt on wake (current) |
 
 ## Install
 
@@ -104,6 +105,8 @@ prerequisite for the low-latency path. If `uam` is unavailable, pre-compiled `.d
   so the placement stays off until the failing syscall can be isolated on a console
 - SixAxis only works in PlayStation controller mode, and needs the host to see a DS4; Pro Controller gyro
   axes aren't passed through natively
+- Sleeping the console, or pressing HOME, mid-stream ends the stream instead of resuming it — reconnect from
+  the host list. Carrying decoder and GPU state across a suspend is what hung the console
 
 ## Credits
 
